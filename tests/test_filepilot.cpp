@@ -8,6 +8,7 @@
 #include "core/model/TaskState.h"
 #include "core/scan/ScanService.h"
 #include "core/tasks/ScanTask.h"
+#include "ui/models/FileTableModel.h"
 #include "core/settings/SettingsService.h"
 
 #include <QCoreApplication>
@@ -410,6 +411,46 @@ void ScanTaskTest::canBeCancelled()
     QCOMPARE(task.state(), TaskState::Cancelled);
     QVERIFY(!task.isActive());
 }
+void FileTableModelTest::exposesRowsColumnsAndHeaders()
+{
+    FileTableModel model;
+    QCOMPARE(model.rowCount(), 0);
+    QCOMPARE(model.columnCount(), 5);
+    QCOMPARE(model.headerData(0, Qt::Horizontal).toString(), QStringLiteral("文件名"));
+    QCOMPARE(model.headerData(1, Qt::Horizontal).toString(), QStringLiteral("类型"));
+    QCOMPARE(model.headerData(2, Qt::Horizontal).toString(), QStringLiteral("大小"));
+    QCOMPARE(model.headerData(3, Qt::Horizontal).toString(), QStringLiteral("修改时间"));
+    QCOMPARE(model.headerData(4, Qt::Horizontal).toString(), QStringLiteral("路径"));
+}
+
+void FileTableModelTest::formatsFileRows()
+{
+    FileInfo first;
+    first.absolutePath = QStringLiteral("C:/Data/report.pdf");
+    first.fileName = QStringLiteral("report.pdf");
+    first.extension = QStringLiteral("pdf");
+    first.sizeBytes = 1536;
+    first.modifiedUtc = QDateTime::fromMSecsSinceEpoch(0, QTimeZone::UTC);
+
+    FileInfo second;
+    second.absolutePath = QStringLiteral("C:/Data/notes");
+    second.fileName = QStringLiteral("notes");
+    second.extension = QString();
+    second.sizeBytes = 0;
+
+    FileTableModel model;
+    model.setFiles({first, second});
+
+    QCOMPARE(model.rowCount(), 2);
+    QCOMPARE(model.data(model.index(0, 0)).toString(), QStringLiteral("report.pdf"));
+    QCOMPARE(model.data(model.index(0, 1)).toString(), QStringLiteral("PDF 文件"));
+    QCOMPARE(model.data(model.index(0, 2)).toString(), QStringLiteral("1.5 KB"));
+    QCOMPARE(model.data(model.index(1, 1)).toString(), QStringLiteral("文件"));
+    QCOMPARE(model.data(model.index(1, 4)).toString(), QStringLiteral("C:/Data/notes"));
+    QCOMPARE(model.data(model.index(0, 4), Qt::ToolTipRole).toString(),
+             QStringLiteral("C:/Data/report.pdf"));
+    QCOMPARE(FileTableModel::formatFileSize(0), QStringLiteral("0 B"));
+}
 void MainWindowTest::buildsRequiredShell()
 {
     MainWindow window(testApplication());
@@ -484,6 +525,10 @@ int main(int argc, char *argv[])
         status |= QTest::qExec(&test, argc, argv);
     }
     {
+        FilePilot::Test::FileTableModelTest test;
+        status |= QTest::qExec(&test, argc, argv);
+    }
+    {
         FilePilot::Test::SettingsServiceTest test;
         status |= QTest::qExec(&test, argc, argv);
     }
@@ -498,3 +543,4 @@ int main(int argc, char *argv[])
 
     return status;
 }
+

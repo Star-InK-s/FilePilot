@@ -54,6 +54,15 @@ private slots:
     void canBeCancelled();
 };
 
+class FileTableModelTest : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void exposesRowsColumnsAndHeaders();
+    void formatsFileRows();
+};
+
 class MainWindowTest : public QObject
 {
     Q_OBJECT
@@ -65,3 +74,4 @@ private slots:
 
 } // namespace Test
 } // namespace FilePilot
+

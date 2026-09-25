@@ -30,6 +30,8 @@ add_library(filepilot_gui STATIC
     app/Application.h
     app/MainWindow.cpp
     app/MainWindow.h
+    ui/models/FileTableModel.cpp
+    ui/models/FileTableModel.h
     ui/pages/Pages.cpp
     ui/pages/Pages.h
 )
@@ -58,3 +60,4 @@ target_link_libraries(filepilot
 )
 
 filepilot_enable_warnings(filepilot)
+
