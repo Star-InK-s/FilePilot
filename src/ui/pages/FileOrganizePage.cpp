@@ -327,21 +327,21 @@ void FileOrganizePage::updateSummary(
         QStringLiteral("总大小：%1").arg(FileTableModel::formatFileSize(totalSizeBytes)));
     errorCountValueLabel_->setText(QStringLiteral("错误：%1").arg(errorCount));
     extensionStatsLabel_->setText(
-        QStringLiteral("类型统计：%1").arg(extensionSummary(extensionCounts)));
+        QStringLiteral("类型统计：%1").arg(countSummary(extensionCounts)));
     categoryStatsLabel_->setText(
-        QStringLiteral("分类统计：%1").arg(extensionSummary(categoryCounts)));
+        QStringLiteral("分类统计：%1").arg(countSummary(categoryCounts)));
 }
 
-QString FileOrganizePage::extensionSummary(
-    const QHash<QString, qint64> &extensionCounts)
+QString FileOrganizePage::countSummary(
+    const QHash<QString, qint64> &counts)
 {
-    if (extensionCounts.isEmpty()) {
+    if (counts.isEmpty()) {
         return QStringLiteral("暂无");
     }
 
     QList<QPair<QString, qint64>> values;
-    values.reserve(extensionCounts.size());
-    for (auto it = extensionCounts.cbegin(); it != extensionCounts.cend(); ++it) {
+    values.reserve(counts.size());
+    for (auto it = counts.cbegin(); it != counts.cend(); ++it) {
         values.append({it.key(), it.value()});
     }
 

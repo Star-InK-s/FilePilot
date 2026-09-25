@@ -52,7 +52,7 @@ private:
                        qint64 errorCount,
                        const QHash<QString, qint64> &extensionCounts,
                        const QHash<QString, qint64> &categoryCounts);
-    static QString extensionSummary(const QHash<QString, qint64> &extensionCounts);
+    static QString countSummary(const QHash<QString, qint64> &counts);
 
     Application &application_;
     ScanTask scanTask_;
