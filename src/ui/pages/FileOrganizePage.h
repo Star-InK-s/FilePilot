@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/model/TaskState.h"
+#include "core/organize/OrganizePlan.h"
 #include "core/tasks/ScanTask.h"
 
 #include <QWidget>
@@ -14,6 +15,7 @@ namespace FilePilot {
 
 class Application;
 class FileTableModel;
+class OrganizePreviewModel;
 
 class FileOrganizePage : public QWidget
 {
@@ -26,6 +28,10 @@ public slots:
     void chooseDirectory();
     void startScan();
     void cancelScan();
+    void chooseTargetRoot();
+    void generatePreview();
+    void confirmPlan();
+    void cancelPlan();
 
 signals:
     void taskStateChanged(FilePilot::TaskState state);
@@ -53,6 +59,8 @@ private:
                        const QHash<QString, qint64> &extensionCounts,
                        const QHash<QString, qint64> &categoryCounts);
     static QString countSummary(const QHash<QString, qint64> &counts);
+    void clearPreview();
+    void updatePreviewSummary();
 
     Application &application_;
     ScanTask scanTask_;
@@ -67,6 +75,22 @@ private:
     QLabel *categoryStatsLabel_ = nullptr;
     QLabel *scanStatusLabel_ = nullptr;
     QTableView *fileTableView_ = nullptr;
+    QLabel *previewTotalLabel_ = nullptr;
+    QLabel *previewPlannedLabel_ = nullptr;
+    QLabel *previewInvalidLabel_ = nullptr;
+    QLabel *previewCategoryStatsLabel_ = nullptr;
+    QLabel *previewStatusLabel_ = nullptr;
+    QLineEdit *targetRootEdit_ = nullptr;
+    QPushButton *chooseTargetRootButton_ = nullptr;
+    QPushButton *generatePreviewButton_ = nullptr;
+    QPushButton *confirmPlanButton_ = nullptr;
+    QPushButton *cancelPlanButton_ = nullptr;
+    QTableView *previewTableView_ = nullptr;
+    OrganizePreviewModel *previewModel_ = nullptr;
+    ScanResult lastScanResult_;
+    OrganizePlan currentPlan_;
+    bool hasScanResult_ = false;
+    bool planConfirmed_ = false;
     qint64 errorCount_ = 0;
     QString currentRoot_;
 };

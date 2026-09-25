@@ -130,6 +130,7 @@ class FileOrganizePageTest : public QObject
 private slots:
     void scansAndDisplaysResults();
     void categorySummaryShowsAllCategories();
+    void generatesPreviewAndConfirmsWithoutFilesystemChanges();
     void reportsInvalidDirectory();
 };
 

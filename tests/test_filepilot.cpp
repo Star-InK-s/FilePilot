@@ -1359,6 +1359,86 @@ void ScanTaskTest::flushesErrorBatchesWithoutDroppingCounts()
     QSKIP("Windows-specific error batching fixture");
 #endif
 }
+void FileOrganizePageTest::generatesPreviewAndConfirmsWithoutFilesystemChanges()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString root = directory.path();
+    const QString firstPath = QDir(root).filePath(QStringLiteral("first.txt"));
+    const QString secondPath = QDir(root).filePath(QStringLiteral("second.png"));
+    QVERIFY(writeFile(firstPath, QByteArrayLiteral("first")));
+    QVERIFY(writeFile(secondPath, QByteArrayLiteral("second")));
+
+    const QString targetRoot = QDir(root).filePath(QStringLiteral("Organized"));
+    QFile firstFile(firstPath);
+    QVERIFY(firstFile.open(QIODevice::ReadOnly));
+    const QByteArray firstBefore = firstFile.readAll();
+    firstFile.close();
+    QFile secondFile(secondPath);
+    QVERIFY(secondFile.open(QIODevice::ReadOnly));
+    const QByteArray secondBefore = secondFile.readAll();
+    secondFile.close();
+
+    FileOrganizePage page(testApplication());
+    auto *directoryEdit = page.findChild<QLineEdit *>(QStringLiteral("directoryEdit"));
+    auto *targetRootEdit = page.findChild<QLineEdit *>(QStringLiteral("targetRootEdit"));
+    auto *previewTableView = page.findChild<QTableView *>(QStringLiteral("previewTableView"));
+    auto *fileTableView = page.findChild<QTableView *>(QStringLiteral("fileTableView"));
+    auto *previewTotalLabel = page.findChild<QLabel *>(QStringLiteral("previewTotalLabel"));
+    auto *previewPlannedLabel = page.findChild<QLabel *>(QStringLiteral("previewPlannedLabel"));
+    auto *previewInvalidLabel = page.findChild<QLabel *>(QStringLiteral("previewInvalidLabel"));
+    auto *previewStatusLabel = page.findChild<QLabel *>(QStringLiteral("previewStatusLabel"));
+    auto *confirmButton = page.findChild<QPushButton *>(QStringLiteral("confirmPlanButton"));
+    auto *cancelButton = page.findChild<QPushButton *>(QStringLiteral("cancelPlanButton"));
+
+    QVERIFY(directoryEdit != nullptr);
+    QVERIFY(targetRootEdit != nullptr);
+    QVERIFY(previewTableView != nullptr);
+    QVERIFY(fileTableView != nullptr);
+    QVERIFY(previewTotalLabel != nullptr);
+    QVERIFY(previewPlannedLabel != nullptr);
+    QVERIFY(previewInvalidLabel != nullptr);
+    QVERIFY(previewStatusLabel != nullptr);
+    QVERIFY(confirmButton != nullptr);
+    QVERIFY(cancelButton != nullptr);
+
+    directoryEdit->setText(root);
+    QVERIFY(QMetaObject::invokeMethod(&page, "startScan"));
+    QTRY_VERIFY(fileTableView->model()->rowCount() == 2);
+
+    targetRootEdit->setText(targetRoot);
+    QVERIFY(QMetaObject::invokeMethod(&page, "generatePreview"));
+    QTRY_COMPARE(previewTableView->model()->rowCount(), 2);
+    QCOMPARE(previewTotalLabel->text(), QStringLiteral("总计划：2"));
+    QCOMPARE(previewPlannedLabel->text(), QStringLiteral("Planned：2"));
+    QCOMPARE(previewInvalidLabel->text(), QStringLiteral("Invalid：0"));
+    QVERIFY(confirmButton->isEnabled());
+
+    QVERIFY(QMetaObject::invokeMethod(&page, "confirmPlan"));
+    QVERIFY(previewStatusLabel->text().contains(
+        QStringLiteral("整理计划已确认，实际文件操作将在后续版本执行。")));
+    QVERIFY(!confirmButton->isEnabled());
+    QVERIFY(cancelButton->isEnabled());
+
+    QFile firstAfter(firstPath);
+    QVERIFY(firstAfter.open(QIODevice::ReadOnly));
+    QCOMPARE(firstAfter.readAll(), firstBefore);
+    firstAfter.close();
+    QFile secondAfter(secondPath);
+    QVERIFY(secondAfter.open(QIODevice::ReadOnly));
+    QCOMPARE(secondAfter.readAll(), secondBefore);
+    secondAfter.close();
+    QVERIFY(QFile::exists(firstPath));
+    QVERIFY(QFile::exists(secondPath));
+    QVERIFY(!QFileInfo(QDir(targetRoot).filePath(QStringLiteral("Documents/first.txt"))).exists());
+    QVERIFY(!QFileInfo(QDir(targetRoot).filePath(QStringLiteral("Images/second.png"))).exists());
+
+    QVERIFY(QMetaObject::invokeMethod(&page, "cancelPlan"));
+    QTRY_COMPARE(previewTableView->model()->rowCount(), 0);
+    QVERIFY(previewStatusLabel->text().contains(QStringLiteral("整理计划已取消")));
+    QVERIFY(!confirmButton->isEnabled());
+    QVERIFY(!cancelButton->isEnabled());
+}
 void MainWindowTest::buildsRequiredShell()
 {
     MainWindow window(testApplication());

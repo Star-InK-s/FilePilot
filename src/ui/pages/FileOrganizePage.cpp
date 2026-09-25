@@ -1,9 +1,12 @@
 #include "ui/pages/FileOrganizePage.h"
 
 #include "app/Application.h"
+#include "core/organize/OrganizePlanner.h"
 #include "ui/models/FileTableModel.h"
+#include "ui/models/OrganizePreviewModel.h"
 
 #include <QFileDialog>
+#include <QFrame>
 #include <QFileInfo>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -130,16 +133,235 @@ void FileOrganizePage::buildUi()
     fileTableView_->setColumnWidth(FileTableModel::Type, 120);
     fileTableView_->setColumnWidth(FileTableModel::Size, 110);
     fileTableView_->setColumnWidth(FileTableModel::ModifiedTime, 150);
-    rootLayout->addWidget(fileTableView_, 1);
+    rootLayout->addWidget(fileTableView_, 2);
+
+    auto *previewPanel = new QFrame(this);
+    previewPanel->setObjectName(QStringLiteral("organizePreviewPanel"));
+    previewPanel->setFrameShape(QFrame::StyledPanel);
+    auto *previewLayout = new QVBoxLayout(previewPanel);
+    previewLayout->setContentsMargins(16, 12, 16, 12);
+    previewLayout->setSpacing(10);
+
+    auto *previewTitle = new QLabel(QStringLiteral("整理预览"), previewPanel);
+    QFont previewTitleFont = previewTitle->font();
+    previewTitleFont.setBold(true);
+    previewTitle->setFont(previewTitleFont);
+    previewLayout->addWidget(previewTitle);
+
+    auto *targetRow = new QHBoxLayout();
+    targetRow->setSpacing(10);
+    targetRow->addWidget(new QLabel(QStringLiteral("目标根目录"), previewPanel));
+    targetRootEdit_ = new QLineEdit(previewPanel);
+    targetRootEdit_->setObjectName(QStringLiteral("targetRootEdit"));
+    targetRootEdit_->setPlaceholderText(QStringLiteral("选择整理目标根目录"));
+    targetRootEdit_->setClearButtonEnabled(true);
+    targetRow->addWidget(targetRootEdit_, 1);
+
+    chooseTargetRootButton_ = new QPushButton(
+        style()->standardIcon(QStyle::SP_DirOpenIcon),
+        QStringLiteral("浏览"),
+        previewPanel);
+    chooseTargetRootButton_->setObjectName(QStringLiteral("chooseTargetRootButton"));
+    targetRow->addWidget(chooseTargetRootButton_);
+
+    generatePreviewButton_ = new QPushButton(
+        style()->standardIcon(QStyle::SP_FileDialogDetailedView),
+        QStringLiteral("生成整理预览"),
+        previewPanel);
+    generatePreviewButton_->setObjectName(QStringLiteral("generatePreviewButton"));
+    generatePreviewButton_->setEnabled(false);
+    targetRow->addWidget(generatePreviewButton_);
+    previewLayout->addLayout(targetRow);
+
+    auto *previewSummaryRow = new QHBoxLayout();
+    previewSummaryRow->setSpacing(18);
+    previewTotalLabel_ = new QLabel(QStringLiteral("总计划：0"), previewPanel);
+    previewTotalLabel_->setObjectName(QStringLiteral("previewTotalLabel"));
+    previewSummaryRow->addWidget(previewTotalLabel_);
+    previewPlannedLabel_ = new QLabel(QStringLiteral("Planned：0"), previewPanel);
+    previewPlannedLabel_->setObjectName(QStringLiteral("previewPlannedLabel"));
+    previewSummaryRow->addWidget(previewPlannedLabel_);
+    previewInvalidLabel_ = new QLabel(QStringLiteral("Invalid：0"), previewPanel);
+    previewInvalidLabel_->setObjectName(QStringLiteral("previewInvalidLabel"));
+    previewSummaryRow->addWidget(previewInvalidLabel_);
+    previewCategoryStatsLabel_ = new QLabel(QStringLiteral("分类统计：暂无"), previewPanel);
+    previewCategoryStatsLabel_->setObjectName(QStringLiteral("previewCategoryStatsLabel"));
+    previewCategoryStatsLabel_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    previewSummaryRow->addWidget(previewCategoryStatsLabel_, 1);
+    previewLayout->addLayout(previewSummaryRow);
+
+    previewStatusLabel_ = new QLabel(QStringLiteral("尚未生成整理计划"), previewPanel);
+    previewStatusLabel_->setObjectName(QStringLiteral("previewStatusLabel"));
+    previewStatusLabel_->setWordWrap(true);
+    previewLayout->addWidget(previewStatusLabel_);
+
+    previewTableView_ = new QTableView(previewPanel);
+    previewTableView_->setObjectName(QStringLiteral("previewTableView"));
+    previewModel_ = new OrganizePreviewModel(previewTableView_);
+    previewTableView_->setModel(previewModel_);
+    previewTableView_->setSelectionBehavior(QAbstractItemView::SelectRows);
+    previewTableView_->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    previewTableView_->setAlternatingRowColors(true);
+    previewTableView_->verticalHeader()->setVisible(false);
+    previewTableView_->horizontalHeader()->setStretchLastSection(true);
+    previewTableView_->setColumnWidth(OrganizePreviewModel::FileName, 170);
+    previewTableView_->setColumnWidth(OrganizePreviewModel::SourcePath, 240);
+    previewTableView_->setColumnWidth(OrganizePreviewModel::Category, 110);
+    previewTableView_->setColumnWidth(OrganizePreviewModel::DestinationPath, 260);
+    previewLayout->addWidget(previewTableView_, 1);
+
+    auto *previewButtons = new QHBoxLayout();
+    previewButtons->addStretch(1);
+    confirmPlanButton_ = new QPushButton(
+        style()->standardIcon(QStyle::SP_DialogApplyButton),
+        QStringLiteral("确认计划"),
+        previewPanel);
+    confirmPlanButton_->setObjectName(QStringLiteral("confirmPlanButton"));
+    confirmPlanButton_->setEnabled(false);
+    previewButtons->addWidget(confirmPlanButton_);
+
+    cancelPlanButton_ = new QPushButton(
+        style()->standardIcon(QStyle::SP_DialogCancelButton),
+        QStringLiteral("取消计划"),
+        previewPanel);
+    cancelPlanButton_->setObjectName(QStringLiteral("cancelPlanButton"));
+    cancelPlanButton_->setEnabled(false);
+    previewButtons->addWidget(cancelPlanButton_);
+    previewLayout->addLayout(previewButtons);
+
+    rootLayout->addWidget(previewPanel, 2);
 
     connect(chooseDirectoryButton_, &QPushButton::clicked,
             this, &FileOrganizePage::chooseDirectory);
     connect(scanButton_, &QPushButton::clicked,
             this, &FileOrganizePage::startScan);
+    connect(chooseTargetRootButton_, &QPushButton::clicked,
+            this, &FileOrganizePage::chooseTargetRoot);
+    connect(generatePreviewButton_, &QPushButton::clicked,
+            this, &FileOrganizePage::generatePreview);
+    connect(confirmPlanButton_, &QPushButton::clicked,
+            this, &FileOrganizePage::confirmPlan);
+    connect(cancelPlanButton_, &QPushButton::clicked,
+            this, &FileOrganizePage::cancelPlan);
+    connect(targetRootEdit_, &QLineEdit::returnPressed,
+            this, &FileOrganizePage::generatePreview);
     connect(directoryEdit_, &QLineEdit::returnPressed,
             this, &FileOrganizePage::startScan);
 }
 
+void FileOrganizePage::chooseTargetRoot()
+{
+    const QString initialDirectory = targetRootEdit_->text().isEmpty()
+        ? currentRoot_
+        : targetRootEdit_->text();
+
+    const QString directory = QFileDialog::getExistingDirectory(
+        this,
+        QStringLiteral("选择整理目标根目录"),
+        initialDirectory);
+
+    if (!directory.isEmpty()) {
+        targetRootEdit_->setText(directory);
+    }
+}
+
+void FileOrganizePage::generatePreview()
+{
+    if (!hasScanResult_) {
+        previewStatusLabel_->setText(QStringLiteral("请先完成文件扫描"));
+        return;
+    }
+
+    if (targetRootEdit_->text().trimmed().isEmpty()) {
+        chooseTargetRoot();
+    }
+
+    const QString targetRoot = targetRootEdit_->text().trimmed();
+    if (targetRoot.isEmpty()) {
+        previewStatusLabel_->setText(QStringLiteral("请选择整理目标根目录"));
+        return;
+    }
+
+    currentPlan_ = OrganizePlanner(targetRoot).plan(lastScanResult_);
+    planConfirmed_ = false;
+    previewModel_->setPlan(currentPlan_);
+    updatePreviewSummary();
+
+    const bool hasItems = !currentPlan_.isEmpty();
+    const bool canConfirm =
+        hasItems && currentPlan_.invalidCount() == 0;
+    confirmPlanButton_->setEnabled(canConfirm);
+    cancelPlanButton_->setEnabled(hasItems);
+
+    if (!hasItems) {
+        previewStatusLabel_->setText(QStringLiteral("没有可整理的文件"));
+    } else if (!canConfirm) {
+        previewStatusLabel_->setText(
+            QStringLiteral("预览包含 %1 个无效计划项，无法确认")
+                .arg(currentPlan_.invalidCount()));
+    } else {
+        previewStatusLabel_->setText(QStringLiteral("整理预览已生成"));
+    }
+}
+
+void FileOrganizePage::confirmPlan()
+{
+    if (currentPlan_.isEmpty() || planConfirmed_) {
+        return;
+    }
+
+    if (currentPlan_.invalidCount() > 0) {
+        previewStatusLabel_->setText(
+            QStringLiteral("计划包含无效项，无法确认"));
+        return;
+    }
+
+    planConfirmed_ = true;
+    confirmPlanButton_->setEnabled(false);
+    cancelPlanButton_->setEnabled(true);
+    previewStatusLabel_->setText(
+        QStringLiteral("整理计划已确认，实际文件操作将在后续版本执行。"));
+}
+
+void FileOrganizePage::cancelPlan()
+{
+    clearPreview();
+    previewStatusLabel_->setText(QStringLiteral("整理计划已取消"));
+}
+
+void FileOrganizePage::clearPreview()
+{
+    currentPlan_.clear();
+    planConfirmed_ = false;
+    if (previewModel_ != nullptr) {
+        previewModel_->clear();
+    }
+    if (previewTotalLabel_ != nullptr) {
+        updatePreviewSummary();
+    }
+    if (confirmPlanButton_ != nullptr) {
+        confirmPlanButton_->setEnabled(false);
+    }
+    if (cancelPlanButton_ != nullptr) {
+        cancelPlanButton_->setEnabled(false);
+    }
+    if (generatePreviewButton_ != nullptr) {
+        generatePreviewButton_->setEnabled(hasScanResult_);
+    }
+}
+
+void FileOrganizePage::updatePreviewSummary()
+{
+    previewTotalLabel_->setText(
+        QStringLiteral("总计划：%1").arg(currentPlan_.count()));
+    previewPlannedLabel_->setText(
+        QStringLiteral("Planned：%1").arg(currentPlan_.plannedCount()));
+    previewInvalidLabel_->setText(
+        QStringLiteral("Invalid：%1").arg(currentPlan_.invalidCount()));
+    previewCategoryStatsLabel_->setText(
+        QStringLiteral("分类统计：%1")
+            .arg(countSummary(currentPlan_.categoryCounts())));
+}
 void FileOrganizePage::chooseDirectory()
 {
     const QString initialDirectory = directoryEdit_->text().isEmpty()
@@ -174,6 +396,9 @@ void FileOrganizePage::startScan()
 
     currentRoot_ = rootPath;
     errorCount_ = 0;
+    hasScanResult_ = false;
+    lastScanResult_ = ScanResult{};
+    clearPreview();
     fileModel_->clear();
     updateSummary(0, 0, 0, {}, {});
     scanStatusLabel_->setText(QStringLiteral("正在准备扫描"));
@@ -258,14 +483,14 @@ void FileOrganizePage::handleErrorBatch(const ScanErrorBatch batch)
 void FileOrganizePage::handleCompleted(const ScanResult result)
 {
     errorCount_ = result.statistics.errorCount;
+    lastScanResult_ = result;
+    hasScanResult_ = true;
+    generatePreviewButton_->setEnabled(true);
     fileModel_->setFiles(result.files);
 
     QHash<QString, qint64> categoryCounts;
     for (const FileInfo &file : result.files) {
-        const QString category = file.category.isEmpty()
-            ? QStringLiteral("Others")
-            : file.category;
-        ++categoryCounts[category];
+        ++categoryCounts[file.category];
     }
 
     updateSummary(
@@ -295,12 +520,18 @@ void FileOrganizePage::handleCompleted(const ScanResult result)
 void FileOrganizePage::handleFailed(const QString message)
 {
     fileModel_->clear();
+    hasScanResult_ = false;
+    lastScanResult_ = ScanResult{};
+    clearPreview();
     updateSummary(0, 0, errorCount_, {}, {});
     scanStatusLabel_->setText(QStringLiteral("扫描失败：%1").arg(message));
 }
 
 void FileOrganizePage::handleCancelled()
 {
+    hasScanResult_ = false;
+    lastScanResult_ = ScanResult{};
+    clearPreview();
     scanStatusLabel_->setText(QStringLiteral("扫描已取消"));
 }
 
@@ -356,7 +587,10 @@ QString FileOrganizePage::countSummary(
     QStringList parts;
     for (int index = 0; index < values.size(); ++index) {
         const auto &value = values.at(index);
-        parts << QStringLiteral("%1 %2").arg(value.first).arg(value.second);
+        const QString label = value.first.isEmpty()
+            ? QStringLiteral("(empty)")
+            : value.first;
+        parts << QStringLiteral("%1 %2").arg(label).arg(value.second);
     }
 
     return parts.join(QStringLiteral(" · "));
