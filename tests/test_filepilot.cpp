@@ -7,6 +7,7 @@
 #include "core/model/FileInfo.h"
 #include "core/model/TaskState.h"
 #include "core/scan/ScanService.h"
+#include "core/tasks/ScanTask.h"
 #include "core/settings/SettingsService.h"
 
 #include <QCoreApplication>
@@ -18,9 +19,11 @@
 #include <QListWidget>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QSignalSpy>
 #include <QStackedWidget>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QTimer>
 #include <QTextStream>
 #include <QToolBar>
 
@@ -356,6 +359,57 @@ void LogManagerTest::writesEnabledEntries()
     QVERIFY(!contents.contains(QStringLiteral("Ignored debug entry")));
 }
 
+void ScanTaskTest::runsWithoutBlocking()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString root = directory.path();
+
+    for (int index = 0; index < 1000; ++index) {
+        QVERIFY(writeFile(
+            QDir(root).filePath(QStringLiteral("file-%1.txt").arg(index)),
+            QByteArrayLiteral("x")));
+    }
+
+    ScanTask task;
+    QSignalSpy completedSpy(&task, &ScanTask::completed);
+
+    QTimer timer;
+    timer.setSingleShot(true);
+    timer.setInterval(0);
+    QSignalSpy timerSpy(&timer, &QTimer::timeout);
+    timer.start();
+
+    QVERIFY(task.start(root));
+    QTRY_VERIFY(timerSpy.count() > 0);
+    QTRY_COMPARE(completedSpy.count(), 1);
+    QCOMPARE(task.state(), TaskState::Completed);
+    QVERIFY(!task.isActive());
+}
+
+void ScanTaskTest::canBeCancelled()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString root = directory.path();
+
+    for (int index = 0; index < 2000; ++index) {
+        QVERIFY(writeFile(
+            QDir(root).filePath(QStringLiteral("cancel-%1.txt").arg(index)),
+            QByteArrayLiteral("x")));
+    }
+
+    ScanTask task;
+    QSignalSpy cancelledSpy(&task, &ScanTask::cancelled);
+    connect(&task, &ScanTask::progressChanged, &task, [&task] {
+        task.cancel();
+    });
+
+    QVERIFY(task.start(root));
+    QTRY_COMPARE(cancelledSpy.count(), 1);
+    QCOMPARE(task.state(), TaskState::Cancelled);
+    QVERIFY(!task.isActive());
+}
 void MainWindowTest::buildsRequiredShell()
 {
     MainWindow window(testApplication());
@@ -423,6 +477,10 @@ int main(int argc, char *argv[])
     }
     {
         FilePilot::Test::ScanServiceTest test;
+        status |= QTest::qExec(&test, argc, argv);
+    }
+    {
+        FilePilot::Test::ScanTaskTest test;
         status |= QTest::qExec(&test, argc, argv);
     }
     {

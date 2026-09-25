@@ -45,6 +45,15 @@ private slots:
     void respectsCancellation();
 };
 
+class ScanTaskTest : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void runsWithoutBlocking();
+    void canBeCancelled();
+};
+
 class MainWindowTest : public QObject
 {
     Q_OBJECT
@@ -56,4 +65,3 @@ private slots:
 
 } // namespace Test
 } // namespace FilePilot
-

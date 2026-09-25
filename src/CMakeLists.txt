@@ -8,6 +8,8 @@ add_library(filepilot_core STATIC
     core/model/TaskState.h
     core/scan/ScanService.cpp
     core/scan/ScanService.h
+    core/tasks/ScanTask.cpp
+    core/tasks/ScanTask.h
     core/settings/SettingsService.cpp
     core/settings/SettingsService.h
 )
