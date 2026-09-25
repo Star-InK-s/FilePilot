@@ -1,11 +1,14 @@
 add_library(filepilot_core STATIC
+    core/logging/LogManager.cpp
+    core/logging/LogManager.h
     core/model/AppError.cpp
     core/model/AppError.h
     core/model/FileInfo.h
     core/model/TaskState.cpp
     core/model/TaskState.h
+    core/settings/SettingsService.cpp
+    core/settings/SettingsService.h
 )
-
 target_include_directories(filepilot_core
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
