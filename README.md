@@ -4,9 +4,9 @@ FilePilot 是一个面向 Windows 11 的本地文件整理与备份桌面工具�
 C++17、Qt 6 Widgets、SQLite、CMake 和 Git，目标是形成一个结构完整、
 可读、可维护的本科实习个人项目。
 
-当前代码处于 **Phase 3：文件分类**。本阶段实现了目录选择、后台扫描、
-扫描进度、错误收集、文件统计、RuleEngine 分类和 Qt Model/View 文件列表。移动、
-复制、删除、整理预览、重复文件检测、备份和撤销操作均未实现。
+当前代码处于 **Phase 4：整理预览**。本阶段实现了目录选择、后台扫描、
+扫描进度、错误收集、文件统计、RuleEngine 分类、整理计划和 Qt Model/View 预览。移动、
+复制、删除、冲突执行、重复文件检测、备份和撤销操作均未实现。
 
 ## 当前功能
 
@@ -17,6 +17,10 @@ C++17、Qt 6 Widgets、SQLite、CMake 和 Git，目标是形成一个结构完�
 - 文件总数、总大小、扩展名数量、分类数量和错误数量
 - 数据驱动的 `ClassificationRule` 和 `RuleEngine`
 - 默认分类、自定义规则、优先级、禁用规则和扩展名规范化
+- OrganizePlanner 生成稳定的整理计划快照
+- Windows category / 文件名安全校验
+- Planned / Invalid 预览状态
+- 确认和取消整理计划均不修改文件系统
 - 扫描进度、当前目录和取消操作
 - 单个文件或目录错误记录并继续扫描
 - Windows Junction / reparse point 跳过和根路径保护
@@ -60,6 +64,7 @@ FilePilot/
 │   │   ├── classify/
 │   │   ├── logging/
 │   │   ├── model/
+│   │   ├── organize/
 │   │   ├── scan/
 │   │   ├── settings/
 │   │   └── tasks/
@@ -115,6 +120,19 @@ FilePilot/
 - 错误按批次累计，最终错误总数不丢失
 - 工作线程异常统一转换为 `TaskState::Failed`
 - 同一运行内终态不会被取消操作回退
+### OrganizePlan / OrganizePlanner
+
+整理预览是独立纯业务模块：
+
+- `OrganizePlanItem` 保存源路径、目标路径、分类、文件名、大小、修改时间和状态
+- `OrganizePlan` 保存稳定计划快照并统计 Planned、Invalid 和分类数量
+- `OrganizePlanner` 根据 `FileInfo.category` 和目标根目录生成目标路径
+- `OrganizePathValidator` 校验 category 和文件名
+- 不调用 exists、copy、move、rename 或 remove
+- 无效 category、Windows 保留名称、非法字符、路径逃逸和非法文件名会生成 Invalid 项
+
+`OrganizePreviewModel` 使用 `QAbstractTableModel` 展示：
+文件名、当前路径、分类、目标路径和状态。
 ### FileTableModel
 
 `FileTableModel` 继承 `QAbstractTableModel`，显示：
@@ -179,7 +197,13 @@ ctest --test-dir build --output-on-failure
 - 错误批次累计和最终 flush
 - Windows 普通目录、根 Junction、嵌套 Junction 和 Junction 环
 - 默认分类、自定义规则、优先级、禁用规则和扩展名规范化
+- OrganizePlanner 生成稳定的整理计划快照
+- Windows category / 文件名安全校验
+- Planned / Invalid 预览状态
+- 确认和取消整理计划均不修改文件系统
 - `FileInfo.category` 写入和分类统计
+- OrganizePlan / OrganizePlanner 纯路径规划和安全校验
+- OrganizePreviewModel、预览生成、确认和取消
 - FileTableModel 行列、表头和格式化
 - 文件整理页面扫描结果和失败状态
 - Phase 1 基础模块回归
@@ -206,17 +230,18 @@ ctest --test-dir build --output-on-failure
   不会被 `cancel()` 回退。
 - 当前扫描结果只保存在内存中，没有 SQLite 业务数据持久化。
 - 自定义分类规则目前只能通过 `RuleEngine` 接口传入，尚无规则编辑 UI 或持久化。
+- 整理计划只进行词法路径规划，不检查目标文件是否存在；冲突检测属于 Phase 5。
 ## 下一阶段
 
-Phase 4 将只实现整理预览：
+Phase 5 将实现整理执行和冲突处理：
 
-- `OrganizePlanner` 生成目标路径和预览条目
-- 展示源路径、分类和目标路径
-- 展示预计处理文件数量
-- 对预览结果进行确认或取消
-- 复用现有 `FileInfo.category`
-
-Phase 4 不执行文件移动、复制、删除、冲突处理或备份。
+- 让执行器消费现有 `OrganizePlan`
+- 执行前重新验证计划项
+- 检查目标文件冲突
+- 实现覆盖、跳过和自动重命名策略
+- 执行移动操作并记录错误
+- 执行过程提供进度和取消
+- 不包含重复文件检测、备份或 SQLite 历史持久化
 ## License
 
 MIT。第三方组件和调研来源见 `THIRD_PARTY_NOTICES.md`。
