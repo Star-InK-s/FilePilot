@@ -17,3 +17,35 @@ target_link_libraries(filepilot_core
 )
 
 filepilot_enable_warnings(filepilot_core)
+
+add_library(filepilot_gui STATIC
+    app/Application.cpp
+    app/Application.h
+    app/MainWindow.cpp
+    app/MainWindow.h
+)
+
+target_include_directories(filepilot_gui
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_link_libraries(filepilot_gui
+    PUBLIC
+        filepilot_core
+        Qt6::Gui
+        Qt6::Widgets
+)
+
+filepilot_enable_warnings(filepilot_gui)
+
+add_executable(filepilot WIN32
+    app/main.cpp
+)
+
+target_link_libraries(filepilot
+    PRIVATE
+        filepilot_gui
+)
+
+filepilot_enable_warnings(filepilot)
