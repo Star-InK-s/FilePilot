@@ -97,11 +97,13 @@ FilePilot/
 - `RuleEngine` 对规则按 priority 升序稳定排序
 - 数值越小优先级越高
 - 第一个匹配规则生效
+- Others 只在所有普通规则都不匹配时生效，不参与 wildcard 抢先匹配
+- category 为空或纯空白的规则会被拒绝
 - disabled 规则不会参与匹配
 - 扩展名统一去掉开头的点并转小写
 - 规则扩展名和 `FileInfo.extension` 使用同一套规范化
 - 默认提供 Documents、Images、Videos、Audio、Archives、Programming 和 Others
-- `RuleEngine::classify(ScanResult&)` 将结果写入 `FileInfo.category`
+- `RuleEngine::classify(ScanResult&)` 将结果写入 `FileInfo.category`。`FileOrganizePage` 只展示 RuleEngine 的结果。
 ### ScanTask
 
 `ScanTask` 是扫描后台任务控制器：
