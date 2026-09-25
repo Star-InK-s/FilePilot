@@ -34,13 +34,13 @@ signals:
     void progressChanged(qint64 scannedFileCount,
                          QString currentDirectory,
                          QString currentFile);
-    void errorReported(FilePilot::ScanError error);
+    void errorBatchReported(FilePilot::ScanErrorBatch batch);
     void completed(FilePilot::ScanResult result);
     void failed(QString message);
     void cancelled();
 
 private:
-    void setState(TaskState state);
+    bool setState(TaskState state);
     void detachWorker(QThread *thread);
 
     QThread *workerThread_ = nullptr;

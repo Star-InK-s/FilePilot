@@ -10,9 +10,57 @@
 #include <system_error>
 #include <utility>
 
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
+
 namespace FilePilot {
 
 namespace {
+
+namespace fs = std::filesystem;
+
+struct NativeEntryInfo {
+    bool exists = false;
+    bool directory = false;
+    bool regularFile = false;
+    bool reparsePoint = false;
+    bool junction = false;
+    bool symbolicLink = false;
+    std::error_code error;
+};
+
+#ifdef Q_OS_WIN
+NativeEntryInfo inspectNativeEntry(const QString &path)
+{
+    NativeEntryInfo info;
+    WIN32_FIND_DATAW findData{};
+
+    HANDLE handle = FindFirstFileW(
+        reinterpret_cast<LPCWSTR>(path.utf16()),
+        &findData);
+    if (handle == INVALID_HANDLE_VALUE) {
+        const DWORD code = GetLastError();
+        info.error = std::error_code(static_cast<int>(code), std::system_category());
+        return info;
+    }
+
+    FindClose(handle);
+
+    info.exists = true;
+    const DWORD attributes = findData.dwFileAttributes;
+    info.directory = (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+    info.regularFile = !info.directory
+        && (attributes & FILE_ATTRIBUTE_REPARSE_POINT) == 0;
+    info.reparsePoint = (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+    info.junction = info.reparsePoint
+        && findData.dwReserved0 == IO_REPARSE_TAG_MOUNT_POINT;
+    info.symbolicLink = info.reparsePoint
+        && findData.dwReserved0 == IO_REPARSE_TAG_SYMLINK;
+    return info;
+}
+#endif
+
 
 namespace fs = std::filesystem;
 
@@ -24,6 +72,35 @@ QString pathToString(const fs::path &path)
 fs::path pathFromString(const QString &path)
 {
     return fs::u8path(path.toStdString());
+}
+
+NativeEntryInfo inspectEntry(const QString &path)
+{
+#ifdef Q_OS_WIN
+    return inspectNativeEntry(path);
+#else
+    NativeEntryInfo info;
+    std::error_code error;
+    const fs::file_status status = fs::symlink_status(pathFromString(path), error);
+    info.error = error;
+    if (error) {
+        return info;
+    }
+
+    info.exists = true;
+    info.directory = fs::is_directory(status);
+    info.regularFile = fs::is_regular_file(status);
+    info.reparsePoint = fs::is_symlink(status);
+    info.symbolicLink = info.reparsePoint;
+    return info;
+#endif
+}
+
+bool isRecoverableTraversalError(const std::error_code &error)
+{
+    return error == std::errc::permission_denied
+        || error == std::errc::no_such_file_or_directory
+        || error == std::errc::not_a_directory;
 }
 
 QString errorMessage(const std::error_code &error)
@@ -78,11 +155,15 @@ ScanError makeScanError(const fs::path &path,
     };
 }
 
+constexpr std::size_t maxCollectedErrors = 64;
+
 void appendError(ScanResult &result,
                  const ScanError &error,
                  const ScanErrorCallback &errorCallback)
 {
-    result.errors.push_back(error);
+    if (result.errors.size() < maxCollectedErrors) {
+        result.errors.push_back(error);
+    }
     ++result.statistics.errorCount;
 
     if (errorCallback) {
@@ -166,15 +247,29 @@ ScanResult ScanService::scan(
 
     result.rootPath = pathToString(root);
 
-    const bool rootIsDirectory = fs::is_directory(root, error);
-    if (error) {
+    const NativeEntryInfo rootInfo = inspectEntry(result.rootPath);
+    if (rootInfo.error) {
         result.fatalError =
-            QStringLiteral("无法访问扫描目录：%1").arg(errorMessage(error));
-        appendError(result, makeScanError(root, error), errorCallback);
+            QStringLiteral("无法访问扫描目录：%1").arg(errorMessage(rootInfo.error));
+        appendError(result, makeScanError(root, rootInfo.error), errorCallback);
         return result;
     }
 
-    if (!rootIsDirectory) {
+    if (rootInfo.reparsePoint) {
+        result.fatalError = QStringLiteral(
+            "扫描根目录不能是 Junction、符号链接或其他 reparse point");
+        appendError(
+            result,
+            ScanError{
+                result.rootPath,
+                result.fatalError,
+                static_cast<int>(std::errc::operation_not_permitted),
+            },
+            errorCallback);
+        return result;
+    }
+
+    if (!rootInfo.directory) {
         result.fatalError = QStringLiteral("扫描路径不存在或不是目录");
         appendError(
             result,
@@ -186,7 +281,6 @@ ScanResult ScanService::scan(
             errorCallback);
         return result;
     }
-
     fs::recursive_directory_iterator iterator(
         root,
         fs::directory_options::skip_permission_denied,
@@ -211,20 +305,24 @@ ScanResult ScanService::scan(
         }
 
         const fs::directory_entry entry = *iterator;
-        std::error_code entryError;
-        const fs::file_status linkStatus = entry.symlink_status(entryError);
+        const NativeEntryInfo entryInfo =
+            inspectEntry(pathToString(entry.path()));
 
-        if (entryError) {
+        if (entryInfo.error) {
+            iterator.disable_recursion_pending();
             appendError(
-                result, makeScanError(entry.path(), entryError), errorCallback);
+                result,
+                makeScanError(entry.path(), entryInfo.error),
+                errorCallback);
             reportProgress(
                 result,
                 currentDirectory,
                 pathToString(entry.path()),
                 progressCallback);
-        } else if (fs::is_symlink(linkStatus)) {
-            // Links are never followed. This prevents cycles and repeated scans.
-        } else if (fs::is_directory(linkStatus)) {
+        } else if (entryInfo.reparsePoint) {
+            // Links and Windows reparse points are never followed.
+            iterator.disable_recursion_pending();
+        } else if (entryInfo.directory) {
             currentDirectory = pathToString(entry.path());
 
             std::error_code accessError;
@@ -233,12 +331,13 @@ ScanResult ScanService::scan(
                 fs::directory_options::none,
                 accessError);
             if (accessError) {
+                iterator.disable_recursion_pending();
                 appendError(
                     result,
                     makeScanError(entry.path(), accessError),
                     errorCallback);
             }
-        } else if (fs::is_regular_file(linkStatus)) {
+        } else if (entryInfo.regularFile) {
             const fs::path &filePath = entry.path();
             std::error_code sizeError;
             const uintmax_t rawSize = fs::file_size(filePath, sizeError);
@@ -306,13 +405,26 @@ ScanResult ScanService::scan(
                     progressCallback);
             }
         }
-
         iterator.increment(error);
         if (error) {
-            result.fatalError =
-                QStringLiteral("目录遍历中断：%1").arg(errorMessage(error));
+            const bool recoverable = isRecoverableTraversalError(error);
             appendError(
                 result, makeScanError(entry.path(), error), errorCallback);
+
+            if (iterator != end) {
+                error.clear();
+                continue;
+            }
+
+            if (recoverable) {
+                result.completed = true;
+                reportProgress(
+                    result, currentDirectory, QString(), progressCallback);
+                return result;
+            }
+
+            result.fatalError =
+                QStringLiteral("目录遍历中断：%1").arg(errorMessage(error));
             return result;
         }
     }

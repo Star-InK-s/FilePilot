@@ -39,7 +39,7 @@ private slots:
     void handleProgress(qint64 scannedFileCount,
                         QString currentDirectory,
                         QString currentFile);
-    void handleError(FilePilot::ScanError error);
+    void handleErrorBatch(FilePilot::ScanErrorBatch batch);
     void handleCompleted(FilePilot::ScanResult result);
     void handleFailed(QString message);
     void handleCancelled();

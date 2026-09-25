@@ -42,7 +42,13 @@ private slots:
     void scansNestedUnicodeAndSpecialPaths();
     void rejectsMissingDirectory();
     void recordsFileAccessFailureWithoutStopping();
+    void entryErrorDoesNotStopSiblingScan();
     void respectsCancellation();
+    void reportsExactErrorCountWithBoundedDetails();
+    void windowsOrdinaryDirectoryScan();
+    void windowsRootJunctionIsRejected();
+    void windowsNestedJunctionIsSkipped();
+    void windowsJunctionCycleIsSafe();
 };
 
 class ScanTaskTest : public QObject
@@ -52,6 +58,11 @@ class ScanTaskTest : public QObject
 private slots:
     void runsWithoutBlocking();
     void canBeCancelled();
+    void preparingCancellationIsStable();
+    void runningCancellationIsStable();
+    void completionAndCancellationRaceIsStable();
+    void repeatedCancelAndStartAreStable();
+    void flushesErrorBatchesWithoutDroppingCounts();
 };
 
 class FileTableModelTest : public QObject

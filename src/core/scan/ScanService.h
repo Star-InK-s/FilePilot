@@ -3,6 +3,7 @@
 #include "core/model/FileInfo.h"
 
 #include <QHash>
+#include <QList>
 #include <QMetaType>
 #include <QString>
 
@@ -36,6 +37,11 @@ struct ScanProgress {
     qint64 errorCount = 0;
     QString currentDirectory;
     QString currentFile;
+};
+
+struct ScanErrorBatch {
+    qint64 totalErrorCount = 0;
+    QList<ScanError> errors;
 };
 
 struct ScanStatistics {
@@ -74,4 +80,5 @@ public:
 
 Q_DECLARE_METATYPE(FilePilot::ScanError)
 Q_DECLARE_METATYPE(FilePilot::ScanProgress)
+Q_DECLARE_METATYPE(FilePilot::ScanErrorBatch)
 Q_DECLARE_METATYPE(FilePilot::ScanResult)

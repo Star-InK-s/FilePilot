@@ -14,11 +14,13 @@
 
 #include <QCoreApplication>
 
+
 #include <QDir>
 #include <QDir>
 #include <QFileInfo>
 #include <QFile>
 #include <QListWidget>
+#include <QProcess>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QSignalSpy>
@@ -154,6 +156,22 @@ bool createTrailingDotFile(const QString &path, const QByteArray &contents)
     return success != FALSE && written == static_cast<DWORD>(contents.size());
 }
 
+#ifdef Q_OS_WIN
+bool createJunction(const QString &junctionPath, const QString &targetPath)
+{
+    QDir().mkpath(QFileInfo(junctionPath).absolutePath());
+    const QString command =
+        QStringLiteral("New-Item -ItemType Junction -Path '%1' -Target '%2' | Out-Null")
+            .arg(junctionPath, targetPath);
+    return QProcess::execute(
+        QStringLiteral("powershell.exe"),
+        {
+            QStringLiteral("-NoProfile"),
+            QStringLiteral("-Command"),
+            command,
+        }) == 0;
+}
+#endif
 void removeTrailingDotFile(const QString &path)
 {
     const QString nativePath = windowsLongPath(path);
@@ -288,6 +306,37 @@ void ScanServiceTest::recordsFileAccessFailureWithoutStopping()
 #endif
 }
 
+void ScanServiceTest::entryErrorDoesNotStopSiblingScan()
+{
+#ifdef Q_OS_WIN
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString root = directory.path();
+
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("before.txt")), QByteArrayLiteral("before")));
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("after.txt")), QByteArrayLiteral("after")));
+    const QString badPath = QDir(root).filePath(QStringLiteral("bad-entry."));
+    QVERIFY(createTrailingDotFile(badPath, QByteArrayLiteral("bad")));
+
+    const ScanService service;
+    const ScanResult result = service.scan(root);
+
+    QVERIFY(result.completed);
+    QCOMPARE(result.statistics.fileCount, 2);
+    QVERIFY(result.statistics.errorCount >= 1);
+
+    QStringList names;
+    for (const FileInfo &file : result.files) {
+        names << file.fileName;
+    }
+    QVERIFY(names.contains(QStringLiteral("before.txt")));
+    QVERIFY(names.contains(QStringLiteral("after.txt")));
+
+    removeTrailingDotFile(badPath);
+#else
+    QSKIP("Windows-specific entry error fixture");
+#endif
+}
 void ScanServiceTest::respectsCancellation()
 {
     QTemporaryDir directory;
@@ -364,6 +413,135 @@ void LogManagerTest::writesEnabledEntries()
     QVERIFY(!contents.contains(QStringLiteral("Ignored debug entry")));
 }
 
+void ScanServiceTest::reportsExactErrorCountWithBoundedDetails()
+{
+#ifdef Q_OS_WIN
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString root = directory.path();
+
+    QStringList badPaths;
+    for (int index = 0; index < 200; ++index) {
+        const QString path =
+            QDir(root).filePath(QStringLiteral("bad-%1.").arg(index));
+        QVERIFY(createTrailingDotFile(path, QByteArrayLiteral("bad")));
+        badPaths << path;
+    }
+
+    const ScanService service;
+    int callbackCount = 0;
+    const ScanResult result = service.scan(
+        root,
+        ScanCancellationToken{},
+        {},
+        [&callbackCount](const ScanError &) { ++callbackCount; });
+
+    QVERIFY(result.completed);
+    QCOMPARE(result.statistics.errorCount, 200);
+    QCOMPARE(callbackCount, 200);
+    QVERIFY(result.errors.size() <= 64);
+
+    for (const QString &path : badPaths) {
+        removeTrailingDotFile(path);
+    }
+#else
+    QSKIP("Windows-specific trailing-dot error fixture");
+#endif
+}
+
+void ScanServiceTest::windowsOrdinaryDirectoryScan()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString root = directory.path();
+
+    QVERIFY(writeFile(
+        QDir(root).filePath(QStringLiteral("nested/ordinary.txt")),
+        QByteArrayLiteral("ordinary")));
+
+    const ScanService service;
+    const ScanResult result = service.scan(root);
+
+    QVERIFY(result.completed);
+    QCOMPARE(result.statistics.fileCount, 1);
+    QCOMPARE(result.statistics.errorCount, 0);
+}
+
+void ScanServiceTest::windowsRootJunctionIsRejected()
+{
+#ifdef Q_OS_WIN
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString target = QDir(directory.path()).filePath(QStringLiteral("target"));
+    QVERIFY(QDir().mkpath(target));
+    QVERIFY(writeFile(QDir(target).filePath(QStringLiteral("target.txt")), QByteArrayLiteral("x")));
+
+    const QString junction = QDir(directory.path()).filePath(QStringLiteral("junction"));
+    QVERIFY(createJunction(junction, target));
+
+    const ScanService service;
+    const ScanResult result = service.scan(junction);
+
+    QVERIFY(!result.completed);
+    QVERIFY(result.fatalError.contains(QStringLiteral("Junction"))
+        || result.fatalError.contains(QStringLiteral("reparse")));
+    QVERIFY(result.statistics.errorCount >= 1);
+    QDir().rmdir(junction);
+#else
+    QSKIP("Windows Junction fixture");
+#endif
+}
+
+void ScanServiceTest::windowsNestedJunctionIsSkipped()
+{
+#ifdef Q_OS_WIN
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString root = QDir(directory.path()).filePath(QStringLiteral("root"));
+    const QString target = QDir(directory.path()).filePath(QStringLiteral("target"));
+    QVERIFY(QDir().mkpath(root));
+    QVERIFY(QDir().mkpath(target));
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("ordinary.txt")), QByteArrayLiteral("x")));
+    QVERIFY(writeFile(QDir(target).filePath(QStringLiteral("target.txt")), QByteArrayLiteral("x")));
+
+    const QString junction = QDir(root).filePath(QStringLiteral("junction"));
+    QVERIFY(createJunction(junction, target));
+
+    const ScanService service;
+    const ScanResult result = service.scan(root);
+
+    QVERIFY(result.completed);
+    QCOMPARE(result.statistics.fileCount, 1);
+    for (const FileInfo &file : result.files) {
+        QVERIFY(!file.absolutePath.contains(QStringLiteral("target.txt")));
+    }
+    QDir().rmdir(junction);
+#else
+    QSKIP("Windows Junction fixture");
+#endif
+}
+
+void ScanServiceTest::windowsJunctionCycleIsSafe()
+{
+#ifdef Q_OS_WIN
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString root = QDir(directory.path()).filePath(QStringLiteral("root"));
+    QVERIFY(QDir().mkpath(root));
+
+    const QString junction = QDir(root).filePath(QStringLiteral("junction"));
+    QVERIFY(createJunction(junction, root));
+
+    const ScanService service;
+    const ScanResult result = service.scan(root);
+
+    QVERIFY(result.completed);
+    QCOMPARE(result.statistics.fileCount, 0);
+    QDir().rmdir(junction);
+#else
+    QSKIP("Windows Junction fixture");
+#endif
+}
 void ScanTaskTest::runsWithoutBlocking()
 {
     QTemporaryDir directory;
@@ -389,7 +567,7 @@ void ScanTaskTest::runsWithoutBlocking()
     QTRY_VERIFY(timerSpy.count() > 0);
     QTRY_COMPARE(completedSpy.count(), 1);
     QCOMPARE(task.state(), TaskState::Completed);
-    QVERIFY(!task.isActive());
+    QTRY_VERIFY(!task.isActive());
 }
 
 void ScanTaskTest::canBeCancelled()
@@ -498,6 +676,141 @@ void FileOrganizePageTest::reportsInvalidDirectory()
     directoryEdit->setText(missing);
     QVERIFY(QMetaObject::invokeMethod(&page, "startScan"));
     QTRY_VERIFY(statusLabel->text().contains(QStringLiteral("扫描失败")));
+}
+void ScanTaskTest::preparingCancellationIsStable()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString root = directory.path();
+    for (int index = 0; index < 3000; ++index) {
+        QVERIFY(writeFile(
+            QDir(root).filePath(QStringLiteral("prepare-%1.txt").arg(index)),
+            QByteArrayLiteral("x")));
+    }
+
+    ScanTask task;
+    QSignalSpy cancelledSpy(&task, &ScanTask::cancelled);
+    QVERIFY(task.start(root));
+    task.cancel();
+    task.cancel();
+
+    QTRY_VERIFY(isTerminalTaskState(task.state()));
+    QCOMPARE(task.state(), TaskState::Cancelled);
+    QTRY_COMPARE(cancelledSpy.count(), 1);
+    QVERIFY(!task.isActive());
+}
+
+void ScanTaskTest::runningCancellationIsStable()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString root = directory.path();
+    for (int index = 0; index < 20000; ++index) {
+        QVERIFY(writeFile(
+            QDir(root).filePath(QStringLiteral("running-%1.txt").arg(index)),
+            QByteArrayLiteral("x")));
+    }
+
+    ScanTask task;
+    QSignalSpy cancelledSpy(&task, &ScanTask::cancelled);
+    QVERIFY(task.start(root));
+    QTRY_VERIFY(task.state() == TaskState::Running);
+    task.cancel();
+    task.cancel();
+
+    QTRY_VERIFY(isTerminalTaskState(task.state()));
+    QCOMPARE(task.state(), TaskState::Cancelled);
+    QTRY_COMPARE(cancelledSpy.count(), 1);
+}
+
+void ScanTaskTest::completionAndCancellationRaceIsStable()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString root = directory.path();
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("race.txt")), QByteArrayLiteral("x")));
+
+    ScanTask task;
+    QSignalSpy completedSpy(&task, &ScanTask::completed);
+    QSignalSpy cancelledSpy(&task, &ScanTask::cancelled);
+    QVERIFY(task.start(root));
+    task.cancel();
+
+    QTRY_VERIFY(isTerminalTaskState(task.state()));
+    const TaskState terminalState = task.state();
+    QVERIFY(terminalState == TaskState::Cancelled
+        || terminalState == TaskState::Completed
+        || terminalState == TaskState::CompletedWithErrors);
+    task.cancel();
+    QCOMPARE(task.state(), terminalState);
+    QVERIFY(completedSpy.count() + cancelledSpy.count() == 1);
+    QVERIFY(!task.isActive());
+}
+
+void ScanTaskTest::repeatedCancelAndStartAreStable()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString root = directory.path();
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("repeat.txt")), QByteArrayLiteral("x")));
+
+    ScanTask task;
+    QVERIFY(task.start(root));
+    QVERIFY(!task.start(root));
+    task.cancel();
+    task.cancel();
+    QTRY_VERIFY(isTerminalTaskState(task.state()));
+
+    const TaskState firstTerminalState = task.state();
+    task.cancel();
+    QCOMPARE(task.state(), firstTerminalState);
+
+    QVERIFY(task.start(root));
+    QTRY_VERIFY(isTerminalTaskState(task.state()));
+    QVERIFY(isTerminalTaskState(task.state()));
+    task.cancel();
+    QVERIFY(isTerminalTaskState(task.state()));
+    QVERIFY(!task.isActive());
+}
+
+void ScanTaskTest::flushesErrorBatchesWithoutDroppingCounts()
+{
+#ifdef Q_OS_WIN
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString root = directory.path();
+
+    QStringList badPaths;
+    for (int index = 0; index < 120; ++index) {
+        const QString path =
+            QDir(root).filePath(QStringLiteral("batch-error-%1.").arg(index));
+        QVERIFY(createTrailingDotFile(path, QByteArrayLiteral("bad")));
+        badPaths << path;
+    }
+
+    ScanTask task;
+    QList<ScanErrorBatch> batches;
+    QSignalSpy completedSpy(&task, &ScanTask::completed);
+    connect(&task, &ScanTask::errorBatchReported, &task,
+            [&batches](const ScanErrorBatch batch) { batches.append(batch); });
+
+    QVERIFY(task.start(root));
+    QTRY_VERIFY(isTerminalTaskState(task.state()));
+    QTRY_COMPARE(completedSpy.count(), 1);
+
+    const ScanResult result =
+        completedSpy.at(0).at(0).value<ScanResult>();
+    QVERIFY(!batches.isEmpty());
+    QCOMPARE(batches.constLast().totalErrorCount, result.statistics.errorCount);
+    QCOMPARE(result.statistics.errorCount, 120);
+    QVERIFY(result.errors.size() <= 64);
+
+    for (const QString &path : badPaths) {
+        removeTrailingDotFile(path);
+    }
+#else
+    QSKIP("Windows-specific error batching fixture");
+#endif
 }
 void MainWindowTest::buildsRequiredShell()
 {

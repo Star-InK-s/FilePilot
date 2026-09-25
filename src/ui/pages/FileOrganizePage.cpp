@@ -28,8 +28,8 @@ FileOrganizePage::FileOrganizePage(Application &application, QWidget *parent)
             this, &FileOrganizePage::handleTaskState);
     connect(&scanTask_, &ScanTask::progressChanged,
             this, &FileOrganizePage::handleProgress);
-    connect(&scanTask_, &ScanTask::errorReported,
-            this, &FileOrganizePage::handleError);
+    connect(&scanTask_, &ScanTask::errorBatchReported,
+            this, &FileOrganizePage::handleErrorBatch);
     connect(&scanTask_, &ScanTask::completed,
             this, &FileOrganizePage::handleCompleted);
     connect(&scanTask_, &ScanTask::failed,
@@ -235,14 +235,21 @@ void FileOrganizePage::handleProgress(const qint64 scannedFileCount,
     emit taskProgressChanged(scannedFileCount, currentDirectory, currentFile);
 }
 
-void FileOrganizePage::handleError(const ScanError error)
+void FileOrganizePage::handleErrorBatch(const ScanErrorBatch batch)
 {
-    Q_UNUSED(error);
-    ++errorCount_;
+    errorCount_ = std::max(errorCount_, batch.totalErrorCount);
     errorCountValueLabel_->setText(QStringLiteral("错误：%1").arg(errorCount_));
+
+    QStringList details;
+    for (const ScanError &error : batch.errors) {
+        details << QStringLiteral("%1：%2").arg(error.path, error.message);
+    }
+    if (!details.isEmpty()) {
+        scanStatusLabel_->setToolTip(details.join(QStringLiteral("\n")));
+    }
+
     emit taskErrorCountChanged(errorCount_);
 }
-
 void FileOrganizePage::handleCompleted(const ScanResult result)
 {
     errorCount_ = result.statistics.errorCount;
