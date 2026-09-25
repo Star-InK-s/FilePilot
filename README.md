@@ -4,9 +4,9 @@ FilePilot 是一个面向 Windows 11 的本地文件整理与备份桌面工具�
 C++17、Qt 6 Widgets、SQLite、CMake 和 Git，目标是形成一个结构完整、
 可读、可维护的本科实习个人项目。
 
-当前代码处于 **Phase 2：文件扫描**。本阶段实现了目录选择、后台扫描、
-扫描进度、错误收集、文件统计和 Qt Model/View 文件列表。文件分类、移动、
-复制、删除、重复文件检测、备份和撤销操作均未实现。
+当前代码处于 **Phase 3：文件分类**。本阶段实现了目录选择、后台扫描、
+扫描进度、错误收集、文件统计、RuleEngine 分类和 Qt Model/View 文件列表。移动、
+复制、删除、整理预览、重复文件检测、备份和撤销操作均未实现。
 
 ## 当前功能
 
@@ -14,7 +14,9 @@ C++17、Qt 6 Widgets、SQLite、CMake 和 Git，目标是形成一个结构完�
 - 文件整理页面目录选择
 - `std::filesystem` 后台文件扫描
 - 文件名、完整路径、扩展名、大小、创建时间和修改时间
-- 文件总数、总大小、扩展名数量和错误数量
+- 文件总数、总大小、扩展名数量、分类数量和错误数量
+- 数据驱动的 `ClassificationRule` 和 `RuleEngine`
+- 默认分类、自定义规则、优先级、禁用规则和扩展名规范化
 - 扫描进度、当前目录和取消操作
 - 单个文件或目录错误记录并继续扫描
 - Windows Junction / reparse point 跳过和根路径保护
@@ -55,6 +57,7 @@ FilePilot/
 │   │   ├── MainWindow.*
 │   │   └── main.cpp
 │   ├── core/
+│   │   ├── classify/
 │   │   ├── logging/
 │   │   ├── model/
 │   │   ├── scan/
@@ -86,6 +89,19 @@ FilePilot/
 - `ScanStatistics`
 - `ScanError` 列表（只保留有限详情，错误总数始终准确）
 - 完成、取消和致命失败状态
+### ClassificationRule / RuleEngine
+
+分类是独立的 Qt Core 业务模块，不依赖 Qt Widgets：
+
+- `ClassificationRule` 保存名称、优先级、启用状态、分类和扩展名
+- `RuleEngine` 对规则按 priority 升序稳定排序
+- 数值越小优先级越高
+- 第一个匹配规则生效
+- disabled 规则不会参与匹配
+- 扩展名统一去掉开头的点并转小写
+- 规则扩展名和 `FileInfo.extension` 使用同一套规范化
+- 默认提供 Documents、Images、Videos、Audio、Archives、Programming 和 Others
+- `RuleEngine::classify(ScanResult&)` 将结果写入 `FileInfo.category`
 ### ScanTask
 
 `ScanTask` 是扫描后台任务控制器：
@@ -160,6 +176,8 @@ ctest --test-dir build --output-on-failure
 - 后台任务不会阻塞事件循环
 - 错误批次累计和最终 flush
 - Windows 普通目录、根 Junction、嵌套 Junction 和 Junction 环
+- 默认分类、自定义规则、优先级、禁用规则和扩展名规范化
+- `FileInfo.category` 写入和分类统计
 - FileTableModel 行列、表头和格式化
 - 文件整理页面扫描结果和失败状态
 - Phase 1 基础模块回归
@@ -185,17 +203,18 @@ ctest --test-dir build --output-on-failure
 - `ScanTask` 完成后再次调用 `start()` 视为一次新的任务运行；同一运行内的终态
   不会被 `cancel()` 回退。
 - 当前扫描结果只保存在内存中，没有 SQLite 业务数据持久化。
+- 自定义分类规则目前只能通过 `RuleEngine` 接口传入，尚无规则编辑 UI 或持久化。
 ## 下一阶段
 
-Phase 3 将只实现文件分类：
+Phase 4 将只实现整理预览：
 
-- 数据驱动的扩展名分类规则
-- 默认分类和用户自定义规则
-- 分类规则优先级
-- 将分类结果用于整理预览的准备数据
+- `OrganizePlanner` 生成目标路径和预览条目
+- 展示源路径、分类和目标路径
+- 展示预计处理文件数量
+- 对预览结果进行确认或取消
+- 复用现有 `FileInfo.category`
 
-Phase 3 不实现文件移动、复制、删除、重复检测和备份。
-
+Phase 4 不执行文件移动、复制、删除、冲突处理或备份。
 ## License
 
 MIT。第三方组件和调研来源见 `THIRD_PARTY_NOTICES.md`。
