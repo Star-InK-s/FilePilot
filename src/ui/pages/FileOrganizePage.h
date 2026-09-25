@@ -50,7 +50,8 @@ private:
     void updateSummary(qint64 fileCount,
                        qint64 totalSizeBytes,
                        qint64 errorCount,
-                       const QHash<QString, qint64> &extensionCounts);
+                       const QHash<QString, qint64> &extensionCounts,
+                       const QHash<QString, qint64> &categoryCounts);
     static QString extensionSummary(const QHash<QString, qint64> &extensionCounts);
 
     Application &application_;
@@ -63,6 +64,7 @@ private:
     QLabel *totalSizeValueLabel_ = nullptr;
     QLabel *errorCountValueLabel_ = nullptr;
     QLabel *extensionStatsLabel_ = nullptr;
+    QLabel *categoryStatsLabel_ = nullptr;
     QLabel *scanStatusLabel_ = nullptr;
     QTableView *fileTableView_ = nullptr;
     qint64 errorCount_ = 0;

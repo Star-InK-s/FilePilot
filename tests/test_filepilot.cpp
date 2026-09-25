@@ -787,18 +787,20 @@ void FileOrganizePageTest::scansAndDisplaysResults()
     const QString root = directory.path();
 
     QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("first.txt")), QByteArrayLiteral("first")));
-    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("second.pdf")), QByteArrayLiteral("second")));
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("second.png")), QByteArrayLiteral("second")));
 
     FileOrganizePage page(testApplication());
     auto *directoryEdit = page.findChild<QLineEdit *>(QStringLiteral("directoryEdit"));
     auto *tableView = page.findChild<QTableView *>(QStringLiteral("fileTableView"));
     auto *statusLabel = page.findChild<QLabel *>(QStringLiteral("scanStatusLabel"));
     auto *fileCountLabel = page.findChild<QLabel *>(QStringLiteral("fileCountValueLabel"));
+    auto *categoryStatsLabel = page.findChild<QLabel *>(QStringLiteral("categoryStatsLabel"));
 
     QVERIFY(directoryEdit != nullptr);
     QVERIFY(tableView != nullptr);
     QVERIFY(statusLabel != nullptr);
     QVERIFY(fileCountLabel != nullptr);
+    QVERIFY(categoryStatsLabel != nullptr);
 
     directoryEdit->setText(root);
     QVERIFY(QMetaObject::invokeMethod(&page, "startScan"));
@@ -806,6 +808,8 @@ void FileOrganizePageTest::scansAndDisplaysResults()
     QTRY_VERIFY(tableView->model()->rowCount() == 2);
     QTRY_VERIFY(statusLabel->text().contains(QStringLiteral("扫描完成")));
     QCOMPARE(fileCountLabel->text(), QStringLiteral("文件：2"));
+    QVERIFY(categoryStatsLabel->text().contains(QStringLiteral("Documents")));
+    QVERIFY(categoryStatsLabel->text().contains(QStringLiteral("Images")));
 }
 
 void FileOrganizePageTest::reportsInvalidDirectory()

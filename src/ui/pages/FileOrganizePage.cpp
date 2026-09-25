@@ -103,7 +103,12 @@ void FileOrganizePage::buildUi()
     extensionStatsLabel_ = new QLabel(QStringLiteral("类型统计：暂无"), this);
     extensionStatsLabel_->setObjectName(QStringLiteral("extensionStatsLabel"));
     extensionStatsLabel_->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    summaryRow->addWidget(extensionStatsLabel_, 1);
+    summaryRow->addWidget(extensionStatsLabel_);
+
+    categoryStatsLabel_ = new QLabel(QStringLiteral("分类统计：暂无"), this);
+    categoryStatsLabel_->setObjectName(QStringLiteral("categoryStatsLabel"));
+    categoryStatsLabel_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    summaryRow->addWidget(categoryStatsLabel_, 1);
     rootLayout->addLayout(summaryRow);
 
     scanStatusLabel_ = new QLabel(QStringLiteral("请选择目录后开始扫描"), this);
@@ -170,7 +175,7 @@ void FileOrganizePage::startScan()
     currentRoot_ = rootPath;
     errorCount_ = 0;
     fileModel_->clear();
-    updateSummary(0, 0, 0, {});
+    updateSummary(0, 0, 0, {}, {});
     scanStatusLabel_->setText(QStringLiteral("正在准备扫描"));
     scanButton_->setEnabled(false);
     chooseDirectoryButton_->setEnabled(false);
@@ -254,11 +259,21 @@ void FileOrganizePage::handleCompleted(const ScanResult result)
 {
     errorCount_ = result.statistics.errorCount;
     fileModel_->setFiles(result.files);
+
+    QHash<QString, qint64> categoryCounts;
+    for (const FileInfo &file : result.files) {
+        const QString category = file.category.isEmpty()
+            ? QStringLiteral("Others")
+            : file.category;
+        ++categoryCounts[category];
+    }
+
     updateSummary(
         result.statistics.fileCount,
         result.statistics.totalSizeBytes,
         result.statistics.errorCount,
-        result.statistics.extensionCounts);
+        result.statistics.extensionCounts,
+        categoryCounts);
 
     QStringList errorDetails;
     for (const ScanError &error : result.errors) {
@@ -280,7 +295,7 @@ void FileOrganizePage::handleCompleted(const ScanResult result)
 void FileOrganizePage::handleFailed(const QString message)
 {
     fileModel_->clear();
-    updateSummary(0, 0, errorCount_, {});
+    updateSummary(0, 0, errorCount_, {}, {});
     scanStatusLabel_->setText(QStringLiteral("扫描失败：%1").arg(message));
 }
 
@@ -304,7 +319,8 @@ void FileOrganizePage::updateSummary(
     const qint64 fileCount,
     const qint64 totalSizeBytes,
     const qint64 errorCount,
-    const QHash<QString, qint64> &extensionCounts)
+    const QHash<QString, qint64> &extensionCounts,
+    const QHash<QString, qint64> &categoryCounts)
 {
     fileCountValueLabel_->setText(QStringLiteral("文件：%1").arg(fileCount));
     totalSizeValueLabel_->setText(
@@ -312,6 +328,8 @@ void FileOrganizePage::updateSummary(
     errorCountValueLabel_->setText(QStringLiteral("错误：%1").arg(errorCount));
     extensionStatsLabel_->setText(
         QStringLiteral("类型统计：%1").arg(extensionSummary(extensionCounts)));
+    categoryStatsLabel_->setText(
+        QStringLiteral("分类统计：%1").arg(extensionSummary(categoryCounts)));
 }
 
 QString FileOrganizePage::extensionSummary(

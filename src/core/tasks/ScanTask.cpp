@@ -1,5 +1,7 @@
 #include "core/tasks/ScanTask.h"
 
+#include "core/classify/RuleEngine.h"
+
 #include <QThread>
 
 #include <chrono>
@@ -176,6 +178,10 @@ bool ScanTask::start(const QString &rootPath)
                 cancellationToken_,
                 progressCallback,
                 errorCallback);
+
+            if (result.completed) {
+                RuleEngine().classify(result);
+            }
 
             flushErrors();
             emit progressChanged(
