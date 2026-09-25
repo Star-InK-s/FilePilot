@@ -9,6 +9,16 @@ add_library(filepilot_core STATIC
     core/settings/SettingsService.cpp
     core/settings/SettingsService.h
 )
+
+add_library(filepilot_gui STATIC
+    app/Application.cpp
+    app/Application.h
+    app/MainWindow.cpp
+    app/MainWindow.h
+    ui/pages/Pages.cpp
+    ui/pages/Pages.h
+)
+
 target_include_directories(filepilot_core
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
@@ -20,13 +30,6 @@ target_link_libraries(filepilot_core
 )
 
 filepilot_enable_warnings(filepilot_core)
-
-add_library(filepilot_gui STATIC
-    app/Application.cpp
-    app/Application.h
-    app/MainWindow.cpp
-    app/MainWindow.h
-)
 
 target_include_directories(filepilot_gui
     PUBLIC

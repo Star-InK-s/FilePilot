@@ -4,7 +4,7 @@
 int main(int argc, char *argv[])
 {
     FilePilot::Application application(argc, argv);
-    FilePilot::MainWindow window;
+    FilePilot::MainWindow window(application);
     window.show();
 
     return application.exec();
