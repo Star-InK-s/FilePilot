@@ -16,7 +16,8 @@ C++17、Qt 6 Widgets、SQLite、CMake 和 Git，目标是形成一个结构完�
 - 文件名、完整路径、扩展名、大小、创建时间和修改时间
 - 文件总数、总大小、扩展名数量和错误数量
 - 扫描进度、当前目录和取消操作
-- 单个文件或目录错误记录并继续扫描\n- Windows Junction / reparse point 跳过和根路径保护
+- 单个文件或目录错误记录并继续扫描
+- Windows Junction / reparse point 跳过和根路径保护
 - `QAbstractTableModel` 文件表格
 - 全局任务状态和进度区域
 - 设置持久化和文件日志
@@ -74,27 +75,28 @@ FilePilot/
 
 `ScanService` 只负责扫描逻辑和结果组织，不依赖 Qt Widgets。它使用
 `std::filesystem::recursive_directory_iterator`、`directory_options` 和
-`std::error_code` 遍历目录。默认不跟随目录软链接和 Junction。
+`std::error_code` 遍历目录。Windows 下通过 `FindFirstFileW` 和 reparse tag
+识别 Junction、符号链接和其他 reparse point，默认不进入任何链接。根路径是
+链接或 reparse point 时明确拒绝。
 
 单个条目发生元数据错误时会记录错误并继续处理其他条目。目录探测会记录
 无法访问的子目录。扫描结果包含：
 
 - `std::vector<FileInfo>`
 - `ScanStatistics`
-- `ScanError` 列表
+- `ScanError` 列表（只保留有限详情，错误总数始终准确）
 - 完成、取消和致命失败状态
-
 ### ScanTask
 
 `ScanTask` 是扫描后台任务控制器：
 
 - 使用 `QThread` 执行 `ScanService`
 - 使用 `std::atomic_bool` 和 `ScanCancellationToken` 取消
-- 通过 Qt queued signal 报告状态、进度、错误和结果
+- 通过 Qt queued signal 报告状态、进度、错误批次和结果
 - 进度按时间间隔合并，不逐文件刷新 UI
-- 支持 Preparing、Running、Cancelling、Completed、
-  CompletedWithErrors、Cancelled 和 Failed 状态
-
+- 错误按批次累计，最终错误总数不丢失
+- 工作线程异常统一转换为 `TaskState::Failed`
+- 同一运行内终态不会被取消操作回退
 ### FileTableModel
 
 `FileTableModel` 继承 `QAbstractTableModel`，显示：
@@ -154,11 +156,13 @@ ctest --test-dir build --output-on-failure
 - 文件数量、总大小和扩展名统计
 - 不存在目录和单文件访问失败
 - 扫描取消
+- Preparing、Running、完成瞬间和重复取消状态竞争
 - 后台任务不会阻塞事件循环
+- 错误批次累计和最终 flush
+- Windows 普通目录、根 Junction、嵌套 Junction 和 Junction 环
 - FileTableModel 行列、表头和格式化
 - 文件整理页面扫描结果和失败状态
 - Phase 1 基础模块回归
-
 ## 运行程序
 
 ```powershell
@@ -178,8 +182,9 @@ ctest --test-dir build --output-on-failure
   设置 `QTFRAMEWORK_BYPASS_LICENSE_CHECK=1`，或修复本机 Qt License Service。
 - Windows ACL 造成的真实权限拒绝需要在后续测试中补充自动化夹具；当前测试
   使用了可重复的文件元数据访问失败场景。
+- `ScanTask` 完成后再次调用 `start()` 视为一次新的任务运行；同一运行内的终态
+  不会被 `cancel()` 回退。
 - 当前扫描结果只保存在内存中，没有 SQLite 业务数据持久化。
-
 ## 下一阶段
 
 Phase 3 将只实现文件分类：
