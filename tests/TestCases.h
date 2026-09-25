@@ -32,6 +32,39 @@ private slots:
     void writesEnabledEntries();
 };
 
+class OrganizePlanTest : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void storesAndClearsItems();
+    void countsStatusesAndCategories();
+};
+
+class OrganizePlannerTest : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void plansDocumentsAndImages();
+    void plansMultipleCategories();
+    void handlesEmptyScanResult();
+    void rejectsUnsafeCategories();
+    void rejectsUnsafeFileNames();
+    void supportsUnicodeAndLongPaths();
+    void marksInvalidItemsWithoutFilesystemChecks();
+};
+
+class OrganizePreviewModelTest : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void exposesRowsColumnsAndHeaders();
+    void displaysPlanRows();
+    void resetsAndClears();
+};
+
 class RuleEngineTest : public QObject
 {
     Q_OBJECT

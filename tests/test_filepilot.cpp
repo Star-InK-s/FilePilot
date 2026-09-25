@@ -3,6 +3,8 @@
 #include "app/Application.h"
 #include "app/MainWindow.h"
 #include "core/classify/RuleEngine.h"
+#include "core/organize/OrganizePlan.h"
+#include "core/organize/OrganizePlanner.h"
 #include "core/logging/LogManager.h"
 #include "core/model/AppError.h"
 #include "core/model/FileInfo.h"
@@ -10,6 +12,7 @@
 #include "core/scan/ScanService.h"
 #include "core/tasks/ScanTask.h"
 #include "ui/models/FileTableModel.h"
+#include "ui/models/OrganizePreviewModel.h"
 #include "ui/pages/FileOrganizePage.h"
 #include "core/settings/SettingsService.h"
 
@@ -195,6 +198,260 @@ FileInfo fileWithExtension(const QString &extension)
 
 } // namespace
 
+namespace {
+
+FileInfo planFile(const QString &category,
+                  const QString &fileName,
+                  const QString &sourcePath = QStringLiteral("C:/source/file"))
+{
+    FileInfo file;
+    file.absolutePath = sourcePath;
+    file.fileName = fileName;
+    file.extension = fileName.contains(QLatin1Char('.'))
+        ? fileName.section(QLatin1Char('.'), -1).toLower()
+        : QString();
+    file.sizeBytes = 42;
+    file.modifiedUtc = QDateTime::fromMSecsSinceEpoch(1000, QTimeZone::UTC);
+    file.category = category;
+    return file;
+}
+
+OrganizePlanItem plannedItem(const QString &category,
+                             const QString &fileName)
+{
+    return OrganizePlanItem{
+        QStringLiteral("C:/source/") + fileName,
+        QStringLiteral("D:/target/") + category + QLatin1Char('/') + fileName,
+        category,
+        fileName,
+        42,
+        QDateTime::fromMSecsSinceEpoch(1000, QTimeZone::UTC),
+        OrganizePlanStatus::Planned,
+        QString(),
+    };
+}
+
+} // namespace
+
+void OrganizePlanTest::storesAndClearsItems()
+{
+    OrganizePlan plan;
+    QVERIFY(plan.isEmpty());
+    QCOMPARE(plan.count(), std::size_t{0});
+
+    plan.add(plannedItem(QStringLiteral("Documents"), QStringLiteral("a.pdf")));
+    plan.add(plannedItem(QStringLiteral("Images"), QStringLiteral("b.png")));
+    QCOMPARE(plan.count(), std::size_t{2});
+    QVERIFY(!plan.isEmpty());
+
+    plan.clear();
+    QVERIFY(plan.isEmpty());
+    QCOMPARE(plan.count(), std::size_t{0});
+}
+
+void OrganizePlanTest::countsStatusesAndCategories()
+{
+    OrganizePlan plan;
+    plan.add(plannedItem(QStringLiteral("Documents"), QStringLiteral("a.pdf")));
+
+    OrganizePlanItem invalid = plannedItem(QStringLiteral("Images"), QStringLiteral("b.png"));
+    invalid.planStatus = OrganizePlanStatus::Invalid;
+    plan.add(invalid);
+
+    QCOMPARE(plan.plannedCount(), 1);
+    QCOMPARE(plan.invalidCount(), 1);
+
+    const auto counts = plan.categoryCounts();
+    QCOMPARE(counts.value(QStringLiteral("Documents")), 1);
+    QCOMPARE(counts.value(QStringLiteral("Images")), 1);
+}
+
+void OrganizePlannerTest::plansDocumentsAndImages()
+{
+    ScanResult scan;
+    scan.files.push_back(planFile(QStringLiteral("Documents"), QStringLiteral("test.pdf")));
+    scan.files.push_back(planFile(QStringLiteral("Images"), QStringLiteral("photo.jpg")));
+
+    const OrganizePlanner planner(QStringLiteral("D:/Downloads/Organized"));
+    const OrganizePlan plan = planner.plan(scan);
+
+    QCOMPARE(plan.count(), std::size_t{2});
+    QCOMPARE(plan.items().at(0).destinationPath,
+             QStringLiteral("D:/Downloads/Organized/Documents/test.pdf"));
+    QCOMPARE(plan.items().at(1).destinationPath,
+             QStringLiteral("D:/Downloads/Organized/Images/photo.jpg"));
+    QCOMPARE(plan.plannedCount(), 2);
+    QCOMPARE(plan.invalidCount(), 0);
+}
+
+void OrganizePlannerTest::plansMultipleCategories()
+{
+    ScanResult scan;
+    scan.files.push_back(planFile(QStringLiteral("Documents"), QStringLiteral("a.pdf")));
+    scan.files.push_back(planFile(QStringLiteral("Audio"), QStringLiteral("b.mp3")));
+    scan.files.push_back(planFile(QStringLiteral("Programming"), QStringLiteral("c.cpp")));
+
+    const OrganizePlan plan =
+        OrganizePlanner(QStringLiteral("D:/target")).plan(scan);
+
+    QCOMPARE(plan.count(), std::size_t{3});
+    QCOMPARE(plan.categoryCounts().size(), 3);
+    QCOMPARE(plan.plannedCount(), 3);
+}
+
+void OrganizePlannerTest::handlesEmptyScanResult()
+{
+    const OrganizePlan plan =
+        OrganizePlanner(QStringLiteral("D:/target")).plan(ScanResult{});
+    QVERIFY(plan.isEmpty());
+    QCOMPARE(plan.plannedCount(), 0);
+    QCOMPARE(plan.invalidCount(), 0);
+}
+
+void OrganizePlannerTest::rejectsUnsafeCategories()
+{
+    const QStringList invalidCategories{
+        QString(),
+        QStringLiteral("   "),
+        QStringLiteral("."),
+        QStringLiteral(".."),
+        QStringLiteral("../Other"),
+        QStringLiteral("C:/Other"),
+        QStringLiteral("Bad/Path"),
+        QStringLiteral("CON"),
+        QStringLiteral("CON.txt"),
+        QStringLiteral("bad "),
+        QStringLiteral("bad."),
+        QStringLiteral("a:b"),
+        QStringLiteral("a*b"),
+    };
+
+    ScanResult scan;
+    for (const QString &category : invalidCategories) {
+        scan.files.push_back(planFile(category, QStringLiteral("file.txt")));
+    }
+
+    const OrganizePlan plan =
+        OrganizePlanner(QStringLiteral("D:/target")).plan(scan);
+    QCOMPARE(plan.count(), invalidCategories.size());
+    QCOMPARE(plan.invalidCount(), invalidCategories.size());
+    for (const OrganizePlanItem &item : plan.items()) {
+        QCOMPARE(item.planStatus, OrganizePlanStatus::Invalid);
+        QVERIFY(!item.errorMessage.isEmpty());
+        QVERIFY(item.destinationPath.isEmpty());
+    }
+}
+
+void OrganizePlannerTest::rejectsUnsafeFileNames()
+{
+    const QStringList invalidFileNames{
+        QString(),
+        QStringLiteral("."),
+        QStringLiteral(".."),
+        QStringLiteral("bad/name.txt"),
+        QStringLiteral("bad\\name.txt"),
+        QStringLiteral("CON.txt"),
+        QStringLiteral("bad .txt "),
+        QStringLiteral("bad.txt."),
+    };
+
+    ScanResult scan;
+    for (const QString &fileName : invalidFileNames) {
+        scan.files.push_back(planFile(QStringLiteral("Documents"), fileName));
+    }
+
+    const OrganizePlan plan =
+        OrganizePlanner(QStringLiteral("D:/target")).plan(scan);
+    QCOMPARE(plan.invalidCount(), invalidFileNames.size());
+    for (const OrganizePlanItem &item : plan.items()) {
+        QCOMPARE(item.planStatus, OrganizePlanStatus::Invalid);
+    }
+}
+
+void OrganizePlannerTest::supportsUnicodeAndLongPaths()
+{
+    const QString longName = QString(220, QLatin1Char('a')) + QStringLiteral(".pdf");
+    ScanResult scan;
+    scan.files.push_back(planFile(
+        QStringLiteral("Documents"),
+        QStringLiteral("报告 最终.pdf"),
+        QStringLiteral("D:/源目录/报告 最终.pdf")));
+    scan.files.push_back(planFile(
+        QStringLiteral("Images"),
+        longName,
+        QStringLiteral("D:/源目录/") + longName));
+
+    const OrganizePlan plan =
+        OrganizePlanner(QStringLiteral("D:/中文目标根目录/Organized")).plan(scan);
+
+    QCOMPARE(plan.invalidCount(), 0);
+    QCOMPARE(
+        plan.items().at(0).destinationPath,
+        QStringLiteral("D:/中文目标根目录/Organized/Documents/报告 最终.pdf"));
+    QVERIFY(plan.items().at(1).destinationPath.endsWith(longName));
+}
+
+void OrganizePlannerTest::marksInvalidItemsWithoutFilesystemChecks()
+{
+    ScanResult scan;
+    scan.files.push_back(planFile(QStringLiteral("Documents"), QStringLiteral("valid.pdf")));
+    scan.files.push_back(planFile(QStringLiteral("../Escape"), QStringLiteral("bad.pdf")));
+
+    const OrganizePlan plan =
+        OrganizePlanner(QStringLiteral("D:/target")).plan(scan);
+    QCOMPARE(plan.count(), std::size_t{2});
+    QCOMPARE(plan.items().at(0).planStatus, OrganizePlanStatus::Planned);
+    QCOMPARE(plan.items().at(1).planStatus, OrganizePlanStatus::Invalid);
+    QVERIFY(plan.items().at(1).destinationPath.isEmpty());
+}
+
+void OrganizePreviewModelTest::exposesRowsColumnsAndHeaders()
+{
+    OrganizePreviewModel model;
+    QCOMPARE(model.rowCount(), 0);
+    QCOMPARE(model.columnCount(), 5);
+    QCOMPARE(model.headerData(0, Qt::Horizontal).toString(), QStringLiteral("文件名"));
+    QCOMPARE(model.headerData(1, Qt::Horizontal).toString(), QStringLiteral("当前路径"));
+    QCOMPARE(model.headerData(2, Qt::Horizontal).toString(), QStringLiteral("分类"));
+    QCOMPARE(model.headerData(3, Qt::Horizontal).toString(), QStringLiteral("目标路径"));
+    QCOMPARE(model.headerData(4, Qt::Horizontal).toString(), QStringLiteral("状态"));
+}
+
+void OrganizePreviewModelTest::displaysPlanRows()
+{
+    OrganizePlan plan;
+    plan.add(plannedItem(QStringLiteral("Documents"), QStringLiteral("test.pdf")));
+    OrganizePlanItem invalid = plannedItem(QStringLiteral("Images"), QStringLiteral("bad.png"));
+    invalid.planStatus = OrganizePlanStatus::Invalid;
+    invalid.errorMessage = QStringLiteral("invalid category");
+    plan.add(invalid);
+
+    OrganizePreviewModel model;
+    model.setPlan(std::move(plan));
+
+    QCOMPARE(model.rowCount(), 2);
+    QCOMPARE(model.data(model.index(0, 0)).toString(), QStringLiteral("test.pdf"));
+    QCOMPARE(model.data(model.index(0, 2)).toString(), QStringLiteral("Documents"));
+    QCOMPARE(model.data(model.index(0, 4)).toString(), QStringLiteral("Planned"));
+    QCOMPARE(model.data(model.index(1, 4)).toString(), QStringLiteral("Invalid"));
+    QCOMPARE(model.data(model.index(1, 3)).toString(), QStringLiteral("—"));
+    QCOMPARE(model.data(model.index(1, 4), Qt::ToolTipRole).toString(),
+             QStringLiteral("invalid category"));
+}
+
+void OrganizePreviewModelTest::resetsAndClears()
+{
+    OrganizePlan plan;
+    plan.add(plannedItem(QStringLiteral("Documents"), QStringLiteral("test.pdf")));
+
+    OrganizePreviewModel model;
+    model.setPlan(std::move(plan));
+    QCOMPARE(model.rowCount(), 1);
+
+    model.clear();
+    QCOMPARE(model.rowCount(), 0);
+    QVERIFY(model.plan().isEmpty());
+}
 void RuleEngineTest::usesDefaultCategories()
 {
     const RuleEngine engine;
@@ -1164,11 +1421,23 @@ int main(int argc, char *argv[])
 
     int status = 0;
     {
-        FilePilot::Test::CoreModelTest test;
+        FilePilot::Test::OrganizePlanTest test;
+        status |= QTest::qExec(&test, argc, argv);
+    }
+    {
+        FilePilot::Test::OrganizePlannerTest test;
+        status |= QTest::qExec(&test, argc, argv);
+    }
+    {
+        FilePilot::Test::OrganizePreviewModelTest test;
         status |= QTest::qExec(&test, argc, argv);
     }
     {
         FilePilot::Test::RuleEngineTest test;
+        status |= QTest::qExec(&test, argc, argv);
+    }
+    {
+        FilePilot::Test::CoreModelTest test;
         status |= QTest::qExec(&test, argc, argv);
     }
     {

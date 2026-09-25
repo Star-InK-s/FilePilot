@@ -10,6 +10,14 @@ add_library(filepilot_core STATIC
     core/model/FileInfo.h
     core/model/TaskState.cpp
     core/model/TaskState.h
+    core/organize/OrganizePathValidator.cpp
+    core/organize/OrganizePathValidator.h
+    core/organize/OrganizePlan.cpp
+    core/organize/OrganizePlan.h
+    core/organize/OrganizePlanItem.cpp
+    core/organize/OrganizePlanItem.h
+    core/organize/OrganizePlanner.cpp
+    core/organize/OrganizePlanner.h
     core/scan/ScanService.cpp
     core/scan/ScanService.h
     core/tasks/ScanTask.cpp
@@ -35,6 +43,8 @@ add_library(filepilot_gui STATIC
     app/MainWindow.cpp
     app/MainWindow.h
     ui/models/FileTableModel.cpp
+    ui/models/OrganizePreviewModel.cpp
+    ui/models/OrganizePreviewModel.h
     ui/models/FileTableModel.h
     ui/pages/FileOrganizePage.cpp
     ui/pages/FileOrganizePage.h
