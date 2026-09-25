@@ -32,6 +32,19 @@ private slots:
     void writesEnabledEntries();
 };
 
+class ScanServiceTest : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void emptyDirectory();
+    void scansFilesAndStatistics();
+    void scansNestedUnicodeAndSpecialPaths();
+    void rejectsMissingDirectory();
+    void recordsFileAccessFailureWithoutStopping();
+    void respectsCancellation();
+};
+
 class MainWindowTest : public QObject
 {
     Q_OBJECT
@@ -43,3 +56,4 @@ private slots:
 
 } // namespace Test
 } // namespace FilePilot
+

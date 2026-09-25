@@ -6,10 +6,14 @@
 #include "core/model/AppError.h"
 #include "core/model/FileInfo.h"
 #include "core/model/TaskState.h"
+#include "core/scan/ScanService.h"
 #include "core/settings/SettingsService.h"
 
 #include <QCoreApplication>
+
 #include <QDir>
+#include <QDir>
+#include <QFileInfo>
 #include <QFile>
 #include <QListWidget>
 #include <QProgressBar>
@@ -19,6 +23,10 @@
 #include <QTest>
 #include <QTextStream>
 #include <QToolBar>
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
 
 namespace FilePilot {
 namespace Test {
@@ -86,6 +94,206 @@ void CoreModelTest::appError()
     QCOMPARE(error.message(), QStringLiteral("Cannot read file"));
     QCOMPARE(error.context(), QStringLiteral("C:/Data/private.pdf"));
     QCOMPARE(errorCodeName(error.code()), QStringLiteral("Access denied"));
+}
+
+namespace {
+
+bool writeFile(const QString &path, const QByteArray &contents)
+{
+    QDir().mkpath(QFileInfo(path).absolutePath());
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        return false;
+    }
+
+    return file.write(contents) == contents.size();
+}
+
+#ifdef Q_OS_WIN
+QString windowsLongPath(const QString &path)
+{
+    const QString nativePath = QDir::toNativeSeparators(path);
+    return nativePath.startsWith(QStringLiteral("\\\\?\\"))
+        ? nativePath
+        : QStringLiteral("\\\\?\\") + nativePath;
+}
+
+bool createTrailingDotFile(const QString &path, const QByteArray &contents)
+{
+    const QString nativePath = windowsLongPath(path);
+    HANDLE handle = CreateFileW(
+        reinterpret_cast<const wchar_t *>(nativePath.utf16()),
+        GENERIC_WRITE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        nullptr,
+        CREATE_ALWAYS,
+        FILE_ATTRIBUTE_NORMAL,
+        nullptr);
+
+    if (handle == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+
+    DWORD written = 0;
+    const BOOL success = WriteFile(
+        handle,
+        contents.constData(),
+        static_cast<DWORD>(contents.size()),
+        &written,
+        nullptr);
+    CloseHandle(handle);
+
+    return success != FALSE && written == static_cast<DWORD>(contents.size());
+}
+
+void removeTrailingDotFile(const QString &path)
+{
+    const QString nativePath = windowsLongPath(path);
+    DeleteFileW(reinterpret_cast<const wchar_t *>(nativePath.utf16()));
+}
+#endif
+
+} // namespace
+
+void ScanServiceTest::emptyDirectory()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+
+    const ScanService service;
+    const ScanResult result = service.scan(directory.path());
+
+    QVERIFY(result.completed);
+    QVERIFY(!result.cancelled);
+    QVERIFY(result.errors.empty());
+    QCOMPARE(result.statistics.fileCount, 0);
+    QCOMPARE(result.statistics.totalSizeBytes, 0);
+    QVERIFY(result.statistics.extensionCounts.isEmpty());
+}
+
+void ScanServiceTest::scansFilesAndStatistics()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString root = directory.path();
+
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("a.txt")), QByteArrayLiteral("12345")));
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("image.PNG")), QByteArrayLiteral("abcd")));
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("empty.bin")), QByteArray()));
+    QVERIFY(writeFile(
+        QDir(root).filePath(QStringLiteral("level1/level2/report.pdf")),
+        QByteArrayLiteral("xyz")));
+
+    const ScanService service;
+    const ScanResult result = service.scan(root);
+
+    QVERIFY(result.completed);
+    QCOMPARE(result.statistics.fileCount, 4);
+    QCOMPARE(result.statistics.totalSizeBytes, 12);
+    QCOMPARE(result.statistics.extensionCounts.value(QStringLiteral("txt")), 1);
+    QCOMPARE(result.statistics.extensionCounts.value(QStringLiteral("png")), 1);
+    QCOMPARE(result.statistics.extensionCounts.value(QStringLiteral("bin")), 1);
+    QCOMPARE(result.statistics.extensionCounts.value(QStringLiteral("pdf")), 1);
+    QCOMPARE(result.files.size(), std::size_t{4});
+}
+
+void ScanServiceTest::scansNestedUnicodeAndSpecialPaths()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString root = directory.path();
+    const QString nested = QDir(root).filePath(QStringLiteral("中文 目录 [测试] & #"));
+
+    QVERIFY(writeFile(
+        QDir(nested).filePath(QStringLiteral("报告 (最终).txt")),
+        QByteArrayLiteral("中文内容")));
+    QVERIFY(writeFile(
+        QDir(nested).filePath(QStringLiteral("特殊 #[]()&%.bin")),
+        QByteArrayLiteral("x")));
+
+    const ScanService service;
+    const ScanResult result = service.scan(root);
+
+    QVERIFY(result.completed);
+    QCOMPARE(result.statistics.fileCount, 2);
+    QCOMPARE(result.statistics.totalSizeBytes, 13);
+    QCOMPARE(result.statistics.errorCount, 0);
+
+    bool foundChineseFile = false;
+    bool foundSpecialFile = false;
+    for (const FileInfo &file : result.files) {
+        foundChineseFile |=
+            file.fileName == QStringLiteral("报告 (最终).txt");
+        foundSpecialFile |=
+            file.fileName == QStringLiteral("特殊 #[]()&%.bin");
+    }
+    QVERIFY(foundChineseFile);
+    QVERIFY(foundSpecialFile);
+}
+
+void ScanServiceTest::rejectsMissingDirectory()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString missing =
+        QDir(directory.path()).filePath(QStringLiteral("does-not-exist"));
+
+    const ScanService service;
+    const ScanResult result = service.scan(missing);
+
+    QVERIFY(!result.completed);
+    QVERIFY(!result.cancelled);
+    QCOMPARE(result.statistics.fileCount, 0);
+    QCOMPARE(result.statistics.errorCount, 1);
+    QVERIFY(!result.fatalError.isEmpty());
+}
+
+void ScanServiceTest::recordsFileAccessFailureWithoutStopping()
+{
+#ifdef Q_OS_WIN
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString root = directory.path();
+
+    QVERIFY(writeFile(
+        QDir(root).filePath(QStringLiteral("good.txt")), QByteArrayLiteral("ok")));
+    const QString badPath = QDir(root).filePath(QStringLiteral("unreadable."));
+    QVERIFY(createTrailingDotFile(badPath, QByteArrayLiteral("bad")));
+
+    const ScanService service;
+    bool errorReported = false;
+    const ScanResult result = service.scan(
+        root,
+        ScanCancellationToken{},
+        {},
+        [&errorReported](const ScanError &) { errorReported = true; });
+
+    QVERIFY(result.completed);
+    QVERIFY(errorReported);
+    QVERIFY(result.statistics.errorCount >= 1);
+    QVERIFY(!result.errors.empty());
+    QCOMPARE(result.statistics.extensionCounts.value(QStringLiteral("txt")), 1);
+
+    removeTrailingDotFile(badPath);
+#else
+    QSKIP("Windows-specific file access failure fixture");
+#endif
+}
+
+void ScanServiceTest::respectsCancellation()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+
+    ScanCancellationToken token;
+    token.cancel();
+
+    const ScanService service;
+    const ScanResult result = service.scan(directory.path(), token);
+
+    QVERIFY(result.cancelled);
+    QVERIFY(!result.completed);
+    QCOMPARE(result.statistics.fileCount, 0);
 }
 
 void SettingsServiceTest::storesValuesInIniFile()
@@ -211,6 +419,10 @@ int main(int argc, char *argv[])
     int status = 0;
     {
         FilePilot::Test::CoreModelTest test;
+        status |= QTest::qExec(&test, argc, argv);
+    }
+    {
+        FilePilot::Test::ScanServiceTest test;
         status |= QTest::qExec(&test, argc, argv);
     }
     {
