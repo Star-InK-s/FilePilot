@@ -7,7 +7,8 @@ namespace FilePilot {
 
 enum class OrganizePlanStatus {
     Planned,
-    Invalid
+    Invalid,
+    NoOp
 };
 
 QString organizePlanStatusName(OrganizePlanStatus status);

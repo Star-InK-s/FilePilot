@@ -9,6 +9,8 @@ QString organizePlanStatusName(const OrganizePlanStatus status)
         return QStringLiteral("Planned");
     case OrganizePlanStatus::Invalid:
         return QStringLiteral("Invalid");
+    case OrganizePlanStatus::NoOp:
+        return QStringLiteral("NoOp");
     }
 
     return QStringLiteral("Invalid");

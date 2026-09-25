@@ -125,10 +125,15 @@ FilePilot/
 整理预览是独立纯业务模块：
 
 - `OrganizePlanItem` 保存源路径、目标路径、分类、文件名、大小、修改时间和状态
+- Plan provenance 保存规范化 targetRoot、targetRoot 类型（Empty / Relative / Absolute / UNC / DeviceNamespace）、plan generation、scan generation 和扫描来源
+- `plannedItems()` / `executableCandidates()` 永远排除 Invalid 和 NoOp 项
 - `OrganizePlan` 保存稳定计划快照并统计 Planned、Invalid 和分类数量
 - `OrganizePlanner` 根据 `FileInfo.category` 和目标根目录生成目标路径
 - `OrganizePathValidator` 校验 category 和文件名
+- `NoOp` 明确表示 sourcePath 与 destinationPath 词法等价
 - 不调用 exists、copy、move、rename 或 remove
+- Phase 4 只进行 lexical normalization 和静态路径检查
+- Phase 5 必须重新验证 canonical path、volume identity、reparse point、实际目标目录身份和文件系统状态
 - 无效 category、Windows 保留名称、非法字符、路径逃逸和非法文件名会生成 Invalid 项
 
 `OrganizePreviewModel` 使用 `QAbstractTableModel` 展示：
@@ -231,6 +236,7 @@ ctest --test-dir build --output-on-failure
 - 当前扫描结果只保存在内存中，没有 SQLite 业务数据持久化。
 - 自定义分类规则目前只能通过 `RuleEngine` 接口传入，尚无规则编辑 UI 或持久化。
 - 整理计划只进行词法路径规划，不检查目标文件是否存在；冲突检测属于 Phase 5。
+- `executableCandidates()` 只是候选集合，Phase 5 执行器入口仍必须调用 `OrganizeExecutionPrevalidator` 重新验证。
 ## 下一阶段
 
 Phase 5 将实现整理执行和冲突处理：

@@ -39,6 +39,7 @@ class OrganizePlanTest : public QObject
 private slots:
     void storesAndClearsItems();
     void countsStatusesAndCategories();
+    void excludesNonExecutableItems();
 };
 
 class OrganizePlannerTest : public QObject
@@ -53,6 +54,9 @@ private slots:
     void rejectsUnsafeFileNames();
     void supportsUnicodeAndLongPaths();
     void marksInvalidItemsWithoutFilesystemChecks();
+    void bindsPlanProvenance();
+    void classifiesTargetRootKinds();
+    void detectsNoOpPaths();
 };
 
 class OrganizePreviewModelTest : public QObject
@@ -62,6 +66,7 @@ class OrganizePreviewModelTest : public QObject
 private slots:
     void exposesRowsColumnsAndHeaders();
     void displaysPlanRows();
+    void displaysNoOpStatus();
     void resetsAndClears();
 };
 
@@ -131,6 +136,10 @@ private slots:
     void scansAndDisplaysResults();
     void categorySummaryShowsAllCategories();
     void generatesPreviewAndConfirmsWithoutFilesystemChanges();
+    void invalidatesPlanWhenTargetRootChanges();
+    void invalidatesPlanWhenRescanning();
+    void regeneratingPlanResetsConfirmation();
+    void displaysNoOpPreview();
     void reportsInvalidDirectory();
 };
 

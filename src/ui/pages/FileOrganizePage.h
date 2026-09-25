@@ -61,6 +61,8 @@ private:
     static QString countSummary(const QHash<QString, qint64> &counts);
     void clearPreview();
     void updatePreviewSummary();
+    void invalidatePlan(const QString &reason);
+    bool planMatchesCurrentInputs() const;
 
     Application &application_;
     ScanTask scanTask_;
@@ -78,6 +80,7 @@ private:
     QLabel *previewTotalLabel_ = nullptr;
     QLabel *previewPlannedLabel_ = nullptr;
     QLabel *previewInvalidLabel_ = nullptr;
+    QLabel *previewNoOpLabel_ = nullptr;
     QLabel *previewCategoryStatsLabel_ = nullptr;
     QLabel *previewStatusLabel_ = nullptr;
     QLineEdit *targetRootEdit_ = nullptr;
@@ -91,6 +94,9 @@ private:
     OrganizePlan currentPlan_;
     bool hasScanResult_ = false;
     bool planConfirmed_ = false;
+    quint64 planGeneration_ = 0;
+    quint64 scanGeneration_ = 0;
+    QString currentScanSourceRoot_;
     qint64 errorCount_ = 0;
     QString currentRoot_;
 };

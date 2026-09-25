@@ -12,7 +12,9 @@ class OrganizePlanner
 public:
     explicit OrganizePlanner(QString targetRoot);
 
-    OrganizePlan plan(const ScanResult &scanResult) const;
+    OrganizePlan plan(const ScanResult &scanResult,
+                      quint64 planGeneration = 1,
+                      quint64 scanGeneration = 0) const;
 
 private:
     QString targetRoot_;

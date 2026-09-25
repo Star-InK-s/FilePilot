@@ -10,10 +10,13 @@ add_library(filepilot_core STATIC
     core/model/FileInfo.h
     core/model/TaskState.cpp
     core/model/TaskState.h
+    core/organize/OrganizeExecutionPrevalidator.h
     core/organize/OrganizePathValidator.cpp
     core/organize/OrganizePathValidator.h
     core/organize/OrganizePlan.cpp
     core/organize/OrganizePlan.h
+    core/organize/OrganizePlanProvenance.cpp
+    core/organize/OrganizePlanProvenance.h
     core/organize/OrganizePlanItem.cpp
     core/organize/OrganizePlanItem.h
     core/organize/OrganizePlanner.cpp

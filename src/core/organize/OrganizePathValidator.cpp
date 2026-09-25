@@ -138,4 +138,40 @@ bool OrganizePathValidator::isPathInsideRoot(
     return normalizedDestination.startsWith(prefix, Qt::CaseInsensitive);
 }
 
+bool OrganizePathValidator::pathsEqual(
+    const QString &left,
+    const QString &right)
+{
+    return normalizePath(left).compare(
+        normalizePath(right), Qt::CaseInsensitive) == 0;
+}
+
+TargetRootInfo OrganizePathValidator::inspectTargetRoot(
+    const QString &targetRoot)
+{
+    TargetRootInfo info;
+    if (targetRoot.trimmed().isEmpty()) {
+        info.kind = TargetRootKind::Empty;
+        info.message = QStringLiteral("目标根目录不能为空");
+        return info;
+    }
+
+    QString rawPath = targetRoot;
+    rawPath.replace(QLatin1Char(92), QLatin1Char('/'));
+    info.normalizedPath = normalizePath(targetRoot);
+    if (rawPath.startsWith(QStringLiteral("//./"))
+        || rawPath.startsWith(QStringLiteral("//?/"))) {
+        info.kind = TargetRootKind::DeviceNamespace;
+    } else if (rawPath.startsWith(QStringLiteral("//"))) {
+        info.kind = TargetRootKind::Unc;
+    } else if (QDir::isAbsolutePath(info.normalizedPath)) {
+        info.kind = TargetRootKind::Absolute;
+    } else {
+        info.kind = TargetRootKind::Relative;
+    }
+
+    info.valid = true;
+    return info;
+}
+
 } // namespace FilePilot

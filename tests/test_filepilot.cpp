@@ -4,6 +4,7 @@
 #include "app/MainWindow.h"
 #include "core/classify/RuleEngine.h"
 #include "core/organize/OrganizePlan.h"
+#include "core/organize/OrganizePathValidator.h"
 #include "core/organize/OrganizePlanner.h"
 #include "core/logging/LogManager.h"
 #include "core/model/AppError.h"
@@ -308,6 +309,96 @@ void OrganizePlannerTest::handlesEmptyScanResult()
     QCOMPARE(plan.invalidCount(), 0);
 }
 
+void OrganizePlanTest::excludesNonExecutableItems()
+{
+    OrganizePlan plan;
+    OrganizePlanItem planned = plannedItem(QStringLiteral("Documents"), QStringLiteral("a.pdf"));
+    OrganizePlanItem invalid = plannedItem(QStringLiteral("Images"), QStringLiteral("b.png"));
+    invalid.planStatus = OrganizePlanStatus::Invalid;
+    OrganizePlanItem noOp = plannedItem(QStringLiteral("Audio"), QStringLiteral("c.mp3"));
+    noOp.planStatus = OrganizePlanStatus::NoOp;
+    plan.add(std::move(planned));
+    plan.add(std::move(invalid));
+    plan.add(std::move(noOp));
+
+    QCOMPARE(plan.count(), std::size_t{3});
+    QCOMPARE(plan.plannedItems().size(), std::size_t{1});
+    QCOMPARE(plan.executableCandidates().size(), std::size_t{1});
+    QCOMPARE(plan.executableCandidates().at(0).fileName, QStringLiteral("a.pdf"));
+    QCOMPARE(plan.plannedCount(), 1);
+    QCOMPARE(plan.invalidCount(), 1);
+    QCOMPARE(plan.noOpCount(), 1);
+}
+
+void OrganizePlannerTest::bindsPlanProvenance()
+{
+    ScanResult scan;
+    scan.rootPath = QStringLiteral("D:/Source");
+    scan.files.push_back(planFile(QStringLiteral("Documents"), QStringLiteral("a.pdf")));
+
+    const OrganizePlan plan = OrganizePlanner(QStringLiteral("D:/Target/../Target"))
+                                  .plan(scan, 7, 3);
+
+    QCOMPARE(plan.provenance().normalizedTargetRoot, QStringLiteral("D:/Target"));
+    QCOMPARE(plan.provenance().targetRootKind, TargetRootKind::Absolute);
+    QCOMPARE(plan.provenance().planGeneration, quint64{7});
+    QCOMPARE(plan.provenance().scanGeneration, quint64{3});
+    QCOMPARE(plan.provenance().scanSourceRoot, QStringLiteral("D:/Source"));
+    QVERIFY(plan.isCurrentFor(
+        QStringLiteral("d:\\target\\"), 7, 3, QStringLiteral("d:/source")));
+    QVERIFY(!plan.isCurrentFor(
+        QStringLiteral("D:/Target"), 8, 3, QStringLiteral("D:/Source")));
+    QVERIFY(!plan.isCurrentFor(
+        QStringLiteral("D:/Target"), 7, 4, QStringLiteral("D:/Source")));
+    QVERIFY(!plan.isCurrentFor(
+        QStringLiteral("D:/Other"), 7, 3, QStringLiteral("D:/Source")));
+}
+
+void OrganizePlannerTest::classifiesTargetRootKinds()
+{
+    QCOMPARE(OrganizePathValidator::inspectTargetRoot(QString()).kind,
+             TargetRootKind::Empty);
+    QCOMPARE(OrganizePathValidator::inspectTargetRoot(QStringLiteral("relative/path")).kind,
+             TargetRootKind::Relative);
+    QCOMPARE(OrganizePathValidator::inspectTargetRoot(QStringLiteral("D:/Target")).kind,
+             TargetRootKind::Absolute);
+    QCOMPARE(OrganizePathValidator::inspectTargetRoot(QStringLiteral("//server/share")).kind,
+             TargetRootKind::Unc);
+    QCOMPARE(OrganizePathValidator::inspectTargetRoot(QStringLiteral("//?/C:/Target")).kind,
+             TargetRootKind::DeviceNamespace);
+}
+
+void OrganizePlannerTest::detectsNoOpPaths()
+{
+    ScanResult scan;
+    FileInfo exact = planFile(
+        QStringLiteral("Documents"),
+        QStringLiteral("a.txt"),
+        QStringLiteral("D:/target/Documents/a.txt"));
+    scan.files.push_back(exact);
+
+    FileInfo caseEquivalent = planFile(
+        QStringLiteral("Documents"),
+        QStringLiteral("A.TXT"),
+        QStringLiteral("d:/TARGET/documents/A.TXT"));
+    scan.files.push_back(caseEquivalent);
+
+    FileInfo normalizedEquivalent = planFile(
+        QStringLiteral("Documents"),
+        QStringLiteral("A.txt"),
+        QStringLiteral("D:/target/Documents/../Documents/A.txt"));
+    scan.files.push_back(normalizedEquivalent);
+
+    const OrganizePlan plan =
+        OrganizePlanner(QStringLiteral("D:/target")).plan(scan);
+    QCOMPARE(plan.count(), std::size_t{3});
+    QCOMPARE(plan.noOpCount(), 3);
+    QCOMPARE(plan.plannedCount(), 0);
+    QVERIFY(plan.executableCandidates().empty());
+    for (const OrganizePlanItem &item : plan.items()) {
+        QCOMPARE(item.planStatus, OrganizePlanStatus::NoOp);
+    }
+}
 void OrganizePlannerTest::rejectsUnsafeCategories()
 {
     const QStringList invalidCategories{
@@ -439,6 +530,20 @@ void OrganizePreviewModelTest::displaysPlanRows()
              QStringLiteral("invalid category"));
 }
 
+void OrganizePreviewModelTest::displaysNoOpStatus()
+{
+    OrganizePlan plan;
+    OrganizePlanItem item = plannedItem(QStringLiteral("Documents"), QStringLiteral("same.txt"));
+    item.planStatus = OrganizePlanStatus::NoOp;
+    plan.add(std::move(item));
+
+    OrganizePreviewModel model;
+    model.setPlan(std::move(plan));
+
+    QCOMPARE(model.rowCount(), 1);
+    QCOMPARE(model.data(model.index(0, 4)).toString(), QStringLiteral("NoOp"));
+    QVERIFY(!model.data(model.index(0, 3)).toString().isEmpty());
+}
 void OrganizePreviewModelTest::resetsAndClears()
 {
     OrganizePlan plan;
@@ -1208,6 +1313,140 @@ void FileOrganizePageTest::categorySummaryShowsAllCategories()
     QTRY_VERIFY(categoryStatsLabel->text().contains(QStringLiteral("Programming")));
     QTRY_VERIFY(categoryStatsLabel->text().contains(QStringLiteral("Others")));
 }
+void FileOrganizePageTest::invalidatesPlanWhenTargetRootChanges()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString root = directory.path();
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("first.txt")), QByteArrayLiteral("first")));
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("second.png")), QByteArrayLiteral("second")));
+
+    FileOrganizePage page(testApplication());
+    auto *directoryEdit = page.findChild<QLineEdit *>(QStringLiteral("directoryEdit"));
+    auto *targetRootEdit = page.findChild<QLineEdit *>(QStringLiteral("targetRootEdit"));
+    auto *previewTableView = page.findChild<QTableView *>(QStringLiteral("previewTableView"));
+    auto *previewStatusLabel = page.findChild<QLabel *>(QStringLiteral("previewStatusLabel"));
+    auto *confirmButton = page.findChild<QPushButton *>(QStringLiteral("confirmPlanButton"));
+    QVERIFY(directoryEdit != nullptr);
+    QVERIFY(targetRootEdit != nullptr);
+    QVERIFY(previewTableView != nullptr);
+    QVERIFY(previewStatusLabel != nullptr);
+    QVERIFY(confirmButton != nullptr);
+
+    directoryEdit->setText(root);
+    QVERIFY(QMetaObject::invokeMethod(&page, "startScan"));
+    QTRY_VERIFY(page.findChild<QLabel *>(QStringLiteral("scanStatusLabel"))->text().contains(QStringLiteral("扫描完成")));
+    targetRootEdit->setText(QDir(root).filePath(QStringLiteral("Organized")));
+    QVERIFY(QMetaObject::invokeMethod(&page, "generatePreview"));
+    QTRY_COMPARE(previewTableView->model()->rowCount(), 2);
+    QVERIFY(confirmButton->isEnabled());
+
+    targetRootEdit->setText(QDir(root).filePath(QStringLiteral("Changed")));
+    QTRY_COMPARE(previewTableView->model()->rowCount(), 0);
+    QVERIFY(!confirmButton->isEnabled());
+    QVERIFY(previewStatusLabel->text().contains(QStringLiteral("目标根目录已修改")));
+}
+
+void FileOrganizePageTest::invalidatesPlanWhenRescanning()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString root = directory.path();
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("first.txt")), QByteArrayLiteral("first")));
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("second.png")), QByteArrayLiteral("second")));
+
+    FileOrganizePage page(testApplication());
+    auto *directoryEdit = page.findChild<QLineEdit *>(QStringLiteral("directoryEdit"));
+    auto *targetRootEdit = page.findChild<QLineEdit *>(QStringLiteral("targetRootEdit"));
+    auto *previewTableView = page.findChild<QTableView *>(QStringLiteral("previewTableView"));
+    auto *fileTableView = page.findChild<QTableView *>(QStringLiteral("fileTableView"));
+    auto *previewStatusLabel = page.findChild<QLabel *>(QStringLiteral("previewStatusLabel"));
+    auto *confirmButton = page.findChild<QPushButton *>(QStringLiteral("confirmPlanButton"));
+    QVERIFY(directoryEdit != nullptr);
+    QVERIFY(targetRootEdit != nullptr);
+    QVERIFY(previewTableView != nullptr);
+    QVERIFY(fileTableView != nullptr);
+    QVERIFY(previewStatusLabel != nullptr);
+    QVERIFY(confirmButton != nullptr);
+
+    directoryEdit->setText(root);
+    QVERIFY(QMetaObject::invokeMethod(&page, "startScan"));
+    QTRY_COMPARE(fileTableView->model()->rowCount(), 2);
+    targetRootEdit->setText(QDir(root).filePath(QStringLiteral("Organized")));
+    QVERIFY(QMetaObject::invokeMethod(&page, "generatePreview"));
+    QTRY_COMPARE(previewTableView->model()->rowCount(), 2);
+
+    QVERIFY(QMetaObject::invokeMethod(&page, "startScan"));
+    QTRY_COMPARE(fileTableView->model()->rowCount(), 2);
+    QTRY_COMPARE(previewTableView->model()->rowCount(), 0);
+    QVERIFY(previewStatusLabel->text().contains(QStringLiteral("旧整理计划已失效")));
+    QVERIFY(!confirmButton->isEnabled());
+}
+
+void FileOrganizePageTest::regeneratingPlanResetsConfirmation()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString root = directory.path();
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("first.txt")), QByteArrayLiteral("first")));
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("second.png")), QByteArrayLiteral("second")));
+
+    FileOrganizePage page(testApplication());
+    auto *directoryEdit = page.findChild<QLineEdit *>(QStringLiteral("directoryEdit"));
+    auto *targetRootEdit = page.findChild<QLineEdit *>(QStringLiteral("targetRootEdit"));
+    auto *previewTableView = page.findChild<QTableView *>(QStringLiteral("previewTableView"));
+    auto *previewStatusLabel = page.findChild<QLabel *>(QStringLiteral("previewStatusLabel"));
+    auto *confirmButton = page.findChild<QPushButton *>(QStringLiteral("confirmPlanButton"));
+    QVERIFY(directoryEdit != nullptr);
+    QVERIFY(targetRootEdit != nullptr);
+    QVERIFY(previewTableView != nullptr);
+    QVERIFY(previewStatusLabel != nullptr);
+    QVERIFY(confirmButton != nullptr);
+
+    directoryEdit->setText(root);
+    QVERIFY(QMetaObject::invokeMethod(&page, "startScan"));
+    QTRY_VERIFY(page.findChild<QLabel *>(QStringLiteral("scanStatusLabel"))->text().contains(QStringLiteral("扫描完成")));
+    targetRootEdit->setText(QDir(root).filePath(QStringLiteral("Organized")));
+    QVERIFY(QMetaObject::invokeMethod(&page, "generatePreview"));
+    QTRY_COMPARE(previewTableView->model()->rowCount(), 2);
+    QVERIFY(QMetaObject::invokeMethod(&page, "confirmPlan"));
+    QVERIFY(!confirmButton->isEnabled());
+
+    QVERIFY(QMetaObject::invokeMethod(&page, "generatePreview"));
+    QTRY_COMPARE(previewTableView->model()->rowCount(), 2);
+    QVERIFY(confirmButton->isEnabled());
+    QVERIFY(previewStatusLabel->text().contains(QStringLiteral("整理预览已生成")));
+}
+void FileOrganizePageTest::displaysNoOpPreview()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString root = directory.path();
+    QVERIFY(writeFile(
+        QDir(root).filePath(QStringLiteral("Documents/same.txt")),
+        QByteArrayLiteral("same")));
+
+    FileOrganizePage page(testApplication());
+    auto *directoryEdit = page.findChild<QLineEdit *>(QStringLiteral("directoryEdit"));
+    auto *targetRootEdit = page.findChild<QLineEdit *>(QStringLiteral("targetRootEdit"));
+    auto *previewTableView = page.findChild<QTableView *>(QStringLiteral("previewTableView"));
+    auto *previewNoOpLabel = page.findChild<QLabel *>(QStringLiteral("previewNoOpLabel"));
+    QVERIFY(directoryEdit != nullptr);
+    QVERIFY(targetRootEdit != nullptr);
+    QVERIFY(previewTableView != nullptr);
+    QVERIFY(previewNoOpLabel != nullptr);
+
+    directoryEdit->setText(root);
+    QVERIFY(QMetaObject::invokeMethod(&page, "startScan"));
+    QTRY_VERIFY(page.findChild<QLabel *>(QStringLiteral("scanStatusLabel"))->text().contains(QStringLiteral("扫描完成")));
+    targetRootEdit->setText(root);
+    QVERIFY(QMetaObject::invokeMethod(&page, "generatePreview"));
+    QTRY_COMPARE(previewTableView->model()->rowCount(), 1);
+    QCOMPARE(previewNoOpLabel->text(), QStringLiteral("NoOp：1"));
+    QCOMPARE(previewTableView->model()->data(
+        previewTableView->model()->index(0, 4)).toString(),
+        QStringLiteral("NoOp"));
+}
 void FileOrganizePageTest::reportsInvalidDirectory()
 {
     QTemporaryDir directory;
@@ -1534,7 +1773,10 @@ int main(int argc, char *argv[])
     }
     {
         FilePilot::Test::FileOrganizePageTest test;
-        status |= QTest::qExec(&test, argc, argv);
+        char outputOption[] = "-o";
+        char outputPath[] = "D:/Temp/phase4-safety-page2.txt,txt";
+        char *testArgv[] = {argv[0], outputOption, outputPath};
+        status |= QTest::qExec(&test, 3, testArgv);
     }
     {
         FilePilot::Test::SettingsServiceTest test;

@@ -2,6 +2,8 @@
 
 #include "core/organize/OrganizePathValidator.h"
 
+#include <utility>
+
 namespace FilePilot {
 
 OrganizePlanner::OrganizePlanner(QString targetRoot)
@@ -9,11 +11,21 @@ OrganizePlanner::OrganizePlanner(QString targetRoot)
 {
 }
 
-OrganizePlan OrganizePlanner::plan(const ScanResult &scanResult) const
+OrganizePlan OrganizePlanner::plan(
+    const ScanResult &scanResult,
+    const quint64 planGeneration,
+    const quint64 scanGeneration) const
 {
     OrganizePlan plan;
-    const QString normalizedRoot =
-        OrganizePathValidator::normalizePath(targetRoot_);
+    const TargetRootInfo rootInfo =
+        OrganizePathValidator::inspectTargetRoot(targetRoot_);
+    plan.setProvenance(OrganizePlanProvenance{
+        rootInfo.normalizedPath,
+        rootInfo.kind,
+        planGeneration,
+        scanGeneration,
+        OrganizePathValidator::normalizePath(scanResult.rootPath),
+    });
 
     for (const FileInfo &file : scanResult.files) {
         OrganizePlanItem item;
@@ -41,18 +53,19 @@ OrganizePlan OrganizePlanner::plan(const ScanResult &scanResult) const
             continue;
         }
 
-        if (normalizedRoot.isEmpty()) {
+        if (!rootInfo.valid) {
             item.planStatus = OrganizePlanStatus::Invalid;
-            item.errorMessage = QStringLiteral("目标根目录不能为空");
+            item.errorMessage = rootInfo.message;
             plan.add(std::move(item));
             continue;
         }
 
         const QString destination = OrganizePathValidator::destinationPath(
-            normalizedRoot,
+            rootInfo.normalizedPath,
             file.category,
             file.fileName);
-        if (!OrganizePathValidator::isPathInsideRoot(normalizedRoot, destination)) {
+        if (!OrganizePathValidator::isPathInsideRoot(
+                rootInfo.normalizedPath, destination)) {
             item.planStatus = OrganizePlanStatus::Invalid;
             item.errorMessage = QStringLiteral("目标路径超出目标根目录");
             plan.add(std::move(item));
@@ -60,7 +73,11 @@ OrganizePlan OrganizePlanner::plan(const ScanResult &scanResult) const
         }
 
         item.destinationPath = destination;
-        item.planStatus = OrganizePlanStatus::Planned;
+        if (OrganizePathValidator::pathsEqual(file.absolutePath, destination)) {
+            item.planStatus = OrganizePlanStatus::NoOp;
+        } else {
+            item.planStatus = OrganizePlanStatus::Planned;
+        }
         plan.add(std::move(item));
     }
 

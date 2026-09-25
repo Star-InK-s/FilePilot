@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/organize/OrganizePlanProvenance.h"
+
 #include <QString>
 
 namespace FilePilot {
@@ -20,6 +22,13 @@ struct PathValidationResult {
     QString message;
 };
 
+struct TargetRootInfo {
+    bool valid = false;
+    QString normalizedPath;
+    TargetRootKind kind = TargetRootKind::Empty;
+    QString message;
+};
+
 class OrganizePathValidator
 {
 public:
@@ -30,6 +39,8 @@ public:
                                    const QString &category,
                                    const QString &fileName);
     static bool isPathInsideRoot(const QString &root, const QString &destination);
+    static bool pathsEqual(const QString &left, const QString &right);
+    static TargetRootInfo inspectTargetRoot(const QString &targetRoot);
 };
 
 } // namespace FilePilot

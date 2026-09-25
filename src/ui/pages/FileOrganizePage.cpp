@@ -1,6 +1,7 @@
 #include "ui/pages/FileOrganizePage.h"
 
 #include "app/Application.h"
+#include "core/organize/OrganizePathValidator.h"
 #include "core/organize/OrganizePlanner.h"
 #include "ui/models/FileTableModel.h"
 #include "ui/models/OrganizePreviewModel.h"
@@ -182,8 +183,12 @@ void FileOrganizePage::buildUi()
     previewPlannedLabel_->setObjectName(QStringLiteral("previewPlannedLabel"));
     previewSummaryRow->addWidget(previewPlannedLabel_);
     previewInvalidLabel_ = new QLabel(QStringLiteral("Invalid：0"), previewPanel);
-    previewInvalidLabel_->setObjectName(QStringLiteral("previewInvalidLabel"));
+        previewInvalidLabel_->setObjectName(QStringLiteral("previewInvalidLabel"));
     previewSummaryRow->addWidget(previewInvalidLabel_);
+
+    previewNoOpLabel_ = new QLabel(QStringLiteral("NoOp：0"), previewPanel);
+    previewNoOpLabel_->setObjectName(QStringLiteral("previewNoOpLabel"));
+    previewSummaryRow->addWidget(previewNoOpLabel_);
     previewCategoryStatsLabel_ = new QLabel(QStringLiteral("分类统计：暂无"), previewPanel);
     previewCategoryStatsLabel_->setObjectName(QStringLiteral("previewCategoryStatsLabel"));
     previewCategoryStatsLabel_->setTextInteractionFlags(Qt::TextSelectableByMouse);
@@ -243,6 +248,9 @@ void FileOrganizePage::buildUi()
             this, &FileOrganizePage::confirmPlan);
     connect(cancelPlanButton_, &QPushButton::clicked,
             this, &FileOrganizePage::cancelPlan);
+    connect(targetRootEdit_, &QLineEdit::textChanged, this, [this](const QString &) {
+        invalidatePlan(QStringLiteral("目标根目录已修改，当前整理计划已失效"));
+    });
     connect(targetRootEdit_, &QLineEdit::returnPressed,
             this, &FileOrganizePage::generatePreview);
     connect(directoryEdit_, &QLineEdit::returnPressed,
@@ -282,7 +290,9 @@ void FileOrganizePage::generatePreview()
         return;
     }
 
-    currentPlan_ = OrganizePlanner(targetRoot).plan(lastScanResult_);
+    ++planGeneration_;
+    currentPlan_ = OrganizePlanner(targetRoot).plan(
+        lastScanResult_, planGeneration_, scanGeneration_);
     planConfirmed_ = false;
     previewModel_->setPlan(currentPlan_);
     updatePreviewSummary();
@@ -329,6 +339,41 @@ void FileOrganizePage::cancelPlan()
     previewStatusLabel_->setText(QStringLiteral("整理计划已取消"));
 }
 
+void FileOrganizePage::invalidatePlan(const QString &reason)
+{
+    const bool hadPlan = !currentPlan_.isEmpty() || planConfirmed_;
+    currentPlan_.clear();
+    planConfirmed_ = false;
+    if (previewModel_ != nullptr) {
+        previewModel_->clear();
+    }
+    if (previewTotalLabel_ != nullptr) {
+        updatePreviewSummary();
+    }
+    if (confirmPlanButton_ != nullptr) {
+        confirmPlanButton_->setEnabled(false);
+    }
+    if (cancelPlanButton_ != nullptr) {
+        cancelPlanButton_->setEnabled(false);
+    }
+    if (generatePreviewButton_ != nullptr) {
+        generatePreviewButton_->setEnabled(hasScanResult_);
+    }
+    if (previewStatusLabel_ != nullptr && (hadPlan || !reason.isEmpty())) {
+        previewStatusLabel_->setText(reason);
+    }
+}
+
+bool FileOrganizePage::planMatchesCurrentInputs() const
+{
+    return hasScanResult_
+        && !currentPlan_.isEmpty()
+        && currentPlan_.isCurrentFor(
+            targetRootEdit_->text().trimmed(),
+            planGeneration_,
+            scanGeneration_,
+            currentScanSourceRoot_);
+}
 void FileOrganizePage::clearPreview()
 {
     currentPlan_.clear();
@@ -358,6 +403,8 @@ void FileOrganizePage::updatePreviewSummary()
         QStringLiteral("Planned：%1").arg(currentPlan_.plannedCount()));
     previewInvalidLabel_->setText(
         QStringLiteral("Invalid：%1").arg(currentPlan_.invalidCount()));
+    previewNoOpLabel_->setText(
+        QStringLiteral("NoOp：%1").arg(currentPlan_.noOpCount()));
     previewCategoryStatsLabel_->setText(
         QStringLiteral("分类统计：%1")
             .arg(countSummary(currentPlan_.categoryCounts())));
@@ -394,11 +441,18 @@ void FileOrganizePage::startScan()
         return;
     }
 
+    const bool hadPlan = !currentPlan_.isEmpty() || planConfirmed_;
     currentRoot_ = rootPath;
     errorCount_ = 0;
+    ++scanGeneration_;
+    currentScanSourceRoot_.clear();
     hasScanResult_ = false;
     lastScanResult_ = ScanResult{};
-    clearPreview();
+    if (hadPlan) {
+        invalidatePlan(QStringLiteral("开始新的扫描，旧整理计划已失效"));
+    } else {
+        clearPreview();
+    }
     fileModel_->clear();
     updateSummary(0, 0, 0, {}, {});
     scanStatusLabel_->setText(QStringLiteral("正在准备扫描"));
@@ -482,8 +536,13 @@ void FileOrganizePage::handleErrorBatch(const ScanErrorBatch batch)
 }
 void FileOrganizePage::handleCompleted(const ScanResult result)
 {
+    const bool hadPlan = !currentPlan_.isEmpty() || planConfirmed_;
+    if (hadPlan) {
+        invalidatePlan(QStringLiteral("新的扫描结果已生成，旧整理计划已失效"));
+    }
     errorCount_ = result.statistics.errorCount;
     lastScanResult_ = result;
+    currentScanSourceRoot_ = result.rootPath;
     hasScanResult_ = true;
     generatePreviewButton_->setEnabled(true);
     fileModel_->setFiles(result.files);
@@ -519,6 +578,7 @@ void FileOrganizePage::handleCompleted(const ScanResult result)
 
 void FileOrganizePage::handleFailed(const QString message)
 {
+    invalidatePlan(QStringLiteral("扫描失败，当前整理计划已失效"));
     fileModel_->clear();
     hasScanResult_ = false;
     lastScanResult_ = ScanResult{};
@@ -529,6 +589,7 @@ void FileOrganizePage::handleFailed(const QString message)
 
 void FileOrganizePage::handleCancelled()
 {
+    invalidatePlan(QStringLiteral("扫描已取消，当前整理计划已失效"));
     hasScanResult_ = false;
     lastScanResult_ = ScanResult{};
     clearPreview();
