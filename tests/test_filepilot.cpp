@@ -2,6 +2,7 @@
 
 #include "app/Application.h"
 #include "app/MainWindow.h"
+#include "core/classify/RuleEngine.h"
 #include "core/logging/LogManager.h"
 #include "core/model/AppError.h"
 #include "core/model/FileInfo.h"
@@ -181,6 +182,152 @@ void removeTrailingDotFile(const QString &path)
 
 } // namespace
 
+namespace {
+
+FileInfo fileWithExtension(const QString &extension)
+{
+    FileInfo file;
+    file.absolutePath = QStringLiteral("C:/Data/file");
+    file.fileName = QStringLiteral("file");
+    file.extension = extension;
+    return file;
+}
+
+} // namespace
+
+void RuleEngineTest::usesDefaultCategories()
+{
+    const RuleEngine engine;
+    QCOMPARE(engine.rules().size(), std::size_t{7});
+
+    QCOMPARE(engine.classify(fileWithExtension(QStringLiteral("pdf"))),
+             QStringLiteral("Documents"));
+    QCOMPARE(engine.classify(fileWithExtension(QStringLiteral(".png"))),
+             QStringLiteral("Images"));
+    QCOMPARE(engine.classify(fileWithExtension(QStringLiteral("mp4"))),
+             QStringLiteral("Videos"));
+    QCOMPARE(engine.classify(fileWithExtension(QStringLiteral("mp3"))),
+             QStringLiteral("Audio"));
+    QCOMPARE(engine.classify(fileWithExtension(QStringLiteral("zip"))),
+             QStringLiteral("Archives"));
+    QCOMPARE(engine.classify(fileWithExtension(QStringLiteral("cpp"))),
+             QStringLiteral("Programming"));
+    QCOMPARE(engine.classify(fileWithExtension(QStringLiteral("unknown"))),
+             QStringLiteral("Others"));
+}
+
+void RuleEngineTest::usesCustomRules()
+{
+    const RuleEngine engine({
+        ClassificationRule{
+            QStringLiteral("Temporary"),
+            50,
+            true,
+            QStringLiteral("Temporary"),
+            {QStringLiteral(".TMP")},
+            false,
+        },
+        ClassificationRule{
+            QStringLiteral("Fallback"),
+            1000,
+            true,
+            QStringLiteral("Others"),
+            {},
+            true,
+        },
+    });
+
+    QCOMPARE(engine.classify(fileWithExtension(QStringLiteral("tMp"))),
+             QStringLiteral("Temporary"));
+    QCOMPARE(engine.classify(fileWithExtension(QStringLiteral("bin"))),
+             QStringLiteral("Others"));
+}
+
+void RuleEngineTest::appliesPriorityOrder()
+{
+    const RuleEngine engine({
+        ClassificationRule{
+            QStringLiteral("LowerPriority"),
+            20,
+            true,
+            QStringLiteral("LowerPriority"),
+            {QStringLiteral("pdf")},
+            false,
+        },
+        ClassificationRule{
+            QStringLiteral("HigherPriority"),
+            10,
+            true,
+            QStringLiteral("HigherPriority"),
+            {QStringLiteral("pdf")},
+            false,
+        },
+    });
+
+    QCOMPARE(engine.rules().at(0).category, QStringLiteral("HigherPriority"));
+    QCOMPARE(engine.classify(fileWithExtension(QStringLiteral("pdf"))),
+             QStringLiteral("HigherPriority"));
+}
+
+void RuleEngineTest::ignoresDisabledRules()
+{
+    const RuleEngine engine({
+        ClassificationRule{
+            QStringLiteral("Disabled"),
+            10,
+            false,
+            QStringLiteral("Disabled"),
+            {QStringLiteral("pdf")},
+            false,
+        },
+        ClassificationRule{
+            QStringLiteral("Fallback"),
+            1000,
+            true,
+            QStringLiteral("Others"),
+            {},
+            true,
+        },
+    });
+
+    QCOMPARE(engine.classify(fileWithExtension(QStringLiteral("pdf"))),
+             QStringLiteral("Others"));
+}
+
+void RuleEngineTest::normalizesExtensions()
+{
+    QCOMPARE(RuleEngine::normalizeExtension(QStringLiteral(".PDF")), QStringLiteral("pdf"));
+    QCOMPARE(RuleEngine::normalizeExtension(QStringLiteral(" .PnG ")), QStringLiteral("png"));
+    QCOMPARE(RuleEngine::normalizeExtension(QStringLiteral("..Cpp")), QStringLiteral("cpp"));
+
+    const RuleEngine engine({
+        ClassificationRule{
+            QStringLiteral("Normalized"),
+            10,
+            true,
+            QStringLiteral("Normalized"),
+            {QStringLiteral(".PDF")},
+            false,
+        },
+    });
+
+    QCOMPARE(engine.classify(fileWithExtension(QStringLiteral("pDf"))),
+             QStringLiteral("Normalized"));
+}
+
+void RuleEngineTest::writesCategoriesToScanResult()
+{
+    ScanResult result;
+    result.files.push_back(fileWithExtension(QStringLiteral(".PDF")));
+    result.files.push_back(fileWithExtension(QStringLiteral("PNG")));
+    result.files.push_back(fileWithExtension(QString()));
+
+    RuleEngine().classify(result);
+
+    QCOMPARE(result.files.at(0).category, QStringLiteral("Documents"));
+    QCOMPARE(result.files.at(1).category, QStringLiteral("Images"));
+    QCOMPARE(result.files.at(2).category, QStringLiteral("Others"));
+}
 void ScanServiceTest::emptyDirectory()
 {
     QTemporaryDir directory;
@@ -875,6 +1022,10 @@ int main(int argc, char *argv[])
     int status = 0;
     {
         FilePilot::Test::CoreModelTest test;
+        status |= QTest::qExec(&test, argc, argv);
+    }
+    {
+        FilePilot::Test::RuleEngineTest test;
         status |= QTest::qExec(&test, argc, argv);
     }
     {

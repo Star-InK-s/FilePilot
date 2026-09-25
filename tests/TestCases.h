@@ -32,6 +32,19 @@ private slots:
     void writesEnabledEntries();
 };
 
+class RuleEngineTest : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void usesDefaultCategories();
+    void usesCustomRules();
+    void appliesPriorityOrder();
+    void ignoresDisabledRules();
+    void normalizesExtensions();
+    void writesCategoriesToScanResult();
+};
+
 class ScanServiceTest : public QObject
 {
     Q_OBJECT

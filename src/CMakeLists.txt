@@ -1,4 +1,8 @@
 add_library(filepilot_core STATIC
+    core/classify/ClassificationRule.cpp
+    core/classify/ClassificationRule.h
+    core/classify/RuleEngine.cpp
+    core/classify/RuleEngine.h
     core/logging/LogManager.cpp
     core/logging/LogManager.h
     core/model/AppError.cpp
