@@ -63,6 +63,15 @@ private slots:
     void formatsFileRows();
 };
 
+class FileOrganizePageTest : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void scansAndDisplaysResults();
+    void reportsInvalidDirectory();
+};
+
 class MainWindowTest : public QObject
 {
     Q_OBJECT
@@ -74,4 +83,3 @@ private slots:
 
 } // namespace Test
 } // namespace FilePilot
-

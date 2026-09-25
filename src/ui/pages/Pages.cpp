@@ -26,12 +26,6 @@ PlaceholderPage::PlaceholderPage(const QString &title, QWidget *parent)
     layout->addWidget(emptyLabel, 1);
 }
 
-FileOrganizePage::FileOrganizePage(QWidget *parent)
-    : PlaceholderPage(QStringLiteral("文件整理"), parent)
-{
-    setObjectName(QStringLiteral("pageOrganize"));
-}
-
 DuplicateFilesPage::DuplicateFilesPage(QWidget *parent)
     : PlaceholderPage(QStringLiteral("重复文件"), parent)
 {

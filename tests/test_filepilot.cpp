@@ -9,6 +9,7 @@
 #include "core/scan/ScanService.h"
 #include "core/tasks/ScanTask.h"
 #include "ui/models/FileTableModel.h"
+#include "ui/pages/FileOrganizePage.h"
 #include "core/settings/SettingsService.h"
 
 #include <QCoreApplication>
@@ -21,7 +22,10 @@
 #include <QProgressBar>
 #include <QPushButton>
 #include <QSignalSpy>
+#include <QLabel>
+#include <QLineEdit>
 #include <QStackedWidget>
+#include <QTableView>
 #include <QTemporaryDir>
 #include <QTest>
 #include <QTimer>
@@ -451,6 +455,50 @@ void FileTableModelTest::formatsFileRows()
              QStringLiteral("C:/Data/report.pdf"));
     QCOMPARE(FileTableModel::formatFileSize(0), QStringLiteral("0 B"));
 }
+void FileOrganizePageTest::scansAndDisplaysResults()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString root = directory.path();
+
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("first.txt")), QByteArrayLiteral("first")));
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("second.pdf")), QByteArrayLiteral("second")));
+
+    FileOrganizePage page(testApplication());
+    auto *directoryEdit = page.findChild<QLineEdit *>(QStringLiteral("directoryEdit"));
+    auto *tableView = page.findChild<QTableView *>(QStringLiteral("fileTableView"));
+    auto *statusLabel = page.findChild<QLabel *>(QStringLiteral("scanStatusLabel"));
+    auto *fileCountLabel = page.findChild<QLabel *>(QStringLiteral("fileCountValueLabel"));
+
+    QVERIFY(directoryEdit != nullptr);
+    QVERIFY(tableView != nullptr);
+    QVERIFY(statusLabel != nullptr);
+    QVERIFY(fileCountLabel != nullptr);
+
+    directoryEdit->setText(root);
+    QVERIFY(QMetaObject::invokeMethod(&page, "startScan"));
+
+    QTRY_VERIFY(tableView->model()->rowCount() == 2);
+    QTRY_VERIFY(statusLabel->text().contains(QStringLiteral("扫描完成")));
+    QCOMPARE(fileCountLabel->text(), QStringLiteral("文件：2"));
+}
+
+void FileOrganizePageTest::reportsInvalidDirectory()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString missing = QDir(directory.path()).filePath(QStringLiteral("missing"));
+
+    FileOrganizePage page(testApplication());
+    auto *directoryEdit = page.findChild<QLineEdit *>(QStringLiteral("directoryEdit"));
+    auto *statusLabel = page.findChild<QLabel *>(QStringLiteral("scanStatusLabel"));
+    QVERIFY(directoryEdit != nullptr);
+    QVERIFY(statusLabel != nullptr);
+
+    directoryEdit->setText(missing);
+    QVERIFY(QMetaObject::invokeMethod(&page, "startScan"));
+    QTRY_VERIFY(statusLabel->text().contains(QStringLiteral("扫描失败")));
+}
 void MainWindowTest::buildsRequiredShell()
 {
     MainWindow window(testApplication());
@@ -529,6 +577,10 @@ int main(int argc, char *argv[])
         status |= QTest::qExec(&test, argc, argv);
     }
     {
+        FilePilot::Test::FileOrganizePageTest test;
+        status |= QTest::qExec(&test, argc, argv);
+    }
+    {
         FilePilot::Test::SettingsServiceTest test;
         status |= QTest::qExec(&test, argc, argv);
     }
@@ -543,4 +595,3 @@ int main(int argc, char *argv[])
 
     return status;
 }
-

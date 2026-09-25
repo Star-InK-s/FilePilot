@@ -1,6 +1,7 @@
 #include "app/MainWindow.h"
 
 #include "app/Application.h"
+#include "ui/pages/FileOrganizePage.h"
 #include "ui/pages/Pages.h"
 
 #include <QAction>
@@ -79,6 +80,32 @@ void MainWindow::buildUi()
                 statusBar()->showMessage(QStringLiteral("当前页面：%1").arg(pageName));
             });
 
+    connect(chooseDirectoryAction_,
+            &QAction::triggered,
+            organizePage_,
+            &FileOrganizePage::chooseDirectory);
+    connect(scanAction_,
+            &QAction::triggered,
+            organizePage_,
+            &FileOrganizePage::startScan);
+    connect(cancelTaskButton_,
+            &QPushButton::clicked,
+            organizePage_,
+            &FileOrganizePage::cancelScan);
+    connect(organizePage_,
+            &FileOrganizePage::taskStateChanged,
+            this,
+            &MainWindow::updateTaskState);
+    connect(organizePage_,
+            &FileOrganizePage::taskProgressChanged,
+            this,
+            &MainWindow::updateTaskProgress);
+    connect(organizePage_,
+            &FileOrganizePage::taskErrorCountChanged,
+            this,
+            &MainWindow::updateTaskErrorCount);
+
+    updateTaskState(TaskState::Idle);
     navigation_->setCurrentRow(0);
 }
 
@@ -90,22 +117,33 @@ QToolBar *MainWindow::buildToolBar()
     toolBar->setFloatable(false);
     toolBar->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
 
-    const struct {
-        QString text;
-        QStyle::StandardPixmap icon;
-    } actions[] = {
-        {QStringLiteral("选择目录"), QStyle::SP_DialogOpenButton},
-        {QStringLiteral("扫描"), QStyle::SP_BrowserReload},
-        {QStringLiteral("整理"), QStyle::SP_DialogApplyButton},
-        {QStringLiteral("检测重复"), QStyle::SP_FileDialogContentsView},
-        {QStringLiteral("开始备份"), QStyle::SP_DialogSaveButton},
-    };
+    chooseDirectoryAction_ = toolBar->addAction(
+        style()->standardIcon(QStyle::SP_DirOpenIcon),
+        QStringLiteral("选择目录"));
+    chooseDirectoryAction_->setObjectName(QStringLiteral("chooseDirectoryAction"));
 
-    for (const auto &entry : actions) {
-        QAction *action =
-            toolBar->addAction(style()->standardIcon(entry.icon), entry.text);
-        action->setEnabled(false);
-    }
+    scanAction_ = toolBar->addAction(
+        style()->standardIcon(QStyle::SP_BrowserReload),
+        QStringLiteral("扫描"));
+    scanAction_->setObjectName(QStringLiteral("scanAction"));
+
+    QAction *organizeAction = toolBar->addAction(
+        style()->standardIcon(QStyle::SP_DialogApplyButton),
+        QStringLiteral("整理"));
+    organizeAction->setObjectName(QStringLiteral("organizeAction"));
+    organizeAction->setEnabled(false);
+
+    QAction *duplicateAction = toolBar->addAction(
+        style()->standardIcon(QStyle::SP_FileDialogContentsView),
+        QStringLiteral("检测重复"));
+    duplicateAction->setObjectName(QStringLiteral("duplicateAction"));
+    duplicateAction->setEnabled(false);
+
+    QAction *backupAction = toolBar->addAction(
+        style()->standardIcon(QStyle::SP_DialogSaveButton),
+        QStringLiteral("开始备份"));
+    backupAction->setObjectName(QStringLiteral("backupAction"));
+    backupAction->setEnabled(false);
 
     return toolBar;
 }
@@ -144,7 +182,8 @@ QStackedWidget *MainWindow::buildPages()
     auto *pageStack = new QStackedWidget(this);
     pageStack->setObjectName(QStringLiteral("pageStack"));
 
-    pageStack->addWidget(new FileOrganizePage(pageStack));
+    organizePage_ = new FileOrganizePage(application_, pageStack);
+    pageStack->addWidget(organizePage_);
     pageStack->addWidget(new DuplicateFilesPage(pageStack));
     pageStack->addWidget(new BackupPage(pageStack));
     pageStack->addWidget(new HistoryPage(pageStack));
@@ -188,6 +227,48 @@ QWidget *MainWindow::buildProgressPanel()
     layout->addWidget(cancelTaskButton_);
 
     return panel;
+}
+
+void MainWindow::updateTaskState(const TaskState state)
+{
+    const bool active = state == TaskState::Preparing
+        || state == TaskState::Running
+        || state == TaskState::Cancelling;
+
+    taskStateLabel_->setText(taskStateName(state));
+    cancelTaskButton_->setEnabled(
+        state == TaskState::Preparing || state == TaskState::Running);
+    chooseDirectoryAction_->setEnabled(!active);
+    scanAction_->setEnabled(!active);
+
+    if (active) {
+        currentTaskLabel_->setText(QStringLiteral("当前任务：扫描文件"));
+        taskProgressBar_->setRange(0, 0);
+        return;
+    }
+
+    currentTaskLabel_->setText(QStringLiteral("当前任务：无"));
+    taskProgressBar_->setRange(0, 100);
+    taskProgressBar_->setValue(state == TaskState::Completed ? 100 : 0);
+}
+
+void MainWindow::updateTaskProgress(const qint64 scannedFileCount,
+                                    const QString &currentDirectory,
+                                    const QString &currentFile)
+{
+    Q_UNUSED(currentFile);
+    currentTaskLabel_->setText(
+        QStringLiteral("当前任务：扫描文件（%1）").arg(scannedFileCount));
+    if (!currentDirectory.isEmpty()) {
+        statusBar()->showMessage(QStringLiteral("当前目录：%1").arg(currentDirectory));
+    }
+}
+
+void MainWindow::updateTaskErrorCount(const qint64 errorCount)
+{
+    if (errorCount > 0) {
+        statusBar()->showMessage(QStringLiteral("扫描发现 %1 个错误").arg(errorCount));
+    }
 }
 
 void MainWindow::restoreWindowState()

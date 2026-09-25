@@ -2,7 +2,6 @@
 
 #include <QWidget>
 
-class QLabel;
 class QString;
 
 namespace FilePilot {
@@ -11,12 +10,6 @@ class PlaceholderPage : public QWidget
 {
 public:
     explicit PlaceholderPage(const QString &title, QWidget *parent = nullptr);
-};
-
-class FileOrganizePage : public PlaceholderPage
-{
-public:
-    explicit FileOrganizePage(QWidget *parent = nullptr);
 };
 
 class DuplicateFilesPage : public PlaceholderPage

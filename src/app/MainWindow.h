@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/model/TaskState.h"
+
 #include <QMainWindow>
 
 class QAction;
@@ -9,10 +11,12 @@ class QListWidget;
 class QProgressBar;
 class QPushButton;
 class QStackedWidget;
+class QToolBar;
 
 namespace FilePilot {
 
 class Application;
+class FileOrganizePage;
 
 class MainWindow : public QMainWindow
 {
@@ -29,10 +33,18 @@ private:
     QStackedWidget *buildPages();
     QWidget *buildProgressPanel();
     void restoreWindowState();
+    void updateTaskState(TaskState state);
+    void updateTaskProgress(qint64 scannedFileCount,
+                            const QString &currentDirectory,
+                            const QString &currentFile);
+    void updateTaskErrorCount(qint64 errorCount);
 
     Application &application_;
     QListWidget *navigation_ = nullptr;
     QStackedWidget *pageStack_ = nullptr;
+    FileOrganizePage *organizePage_ = nullptr;
+    QAction *chooseDirectoryAction_ = nullptr;
+    QAction *scanAction_ = nullptr;
     QLabel *currentTaskLabel_ = nullptr;
     QLabel *taskStateLabel_ = nullptr;
     QProgressBar *taskProgressBar_ = nullptr;

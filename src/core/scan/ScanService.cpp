@@ -226,6 +226,18 @@ ScanResult ScanService::scan(
             // Links are never followed. This prevents cycles and repeated scans.
         } else if (fs::is_directory(linkStatus)) {
             currentDirectory = pathToString(entry.path());
+
+            std::error_code accessError;
+            const fs::directory_iterator probe(
+                entry.path(),
+                fs::directory_options::none,
+                accessError);
+            if (accessError) {
+                appendError(
+                    result,
+                    makeScanError(entry.path(), accessError),
+                    errorCallback);
+            }
         } else if (fs::is_regular_file(linkStatus)) {
             const fs::path &filePath = entry.path();
             std::error_code sizeError;
