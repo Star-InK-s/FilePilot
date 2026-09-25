@@ -154,7 +154,7 @@ std::vector<ClassificationRule> defaultClassificationRules()
             true,
             QStringLiteral("Others"),
             {},
-            true,
+            false,
         },
     };
 }

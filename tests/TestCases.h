@@ -38,6 +38,9 @@ class RuleEngineTest : public QObject
 
 private slots:
     void usesDefaultCategories();
+    void customRulesBeatOthersFallback();
+    void othersIsOnlyFinalFallback();
+    void rejectsEmptyCategoryRules();
     void usesCustomRules();
     void appliesPriorityOrder();
     void ignoresDisabledRules();
@@ -93,6 +96,7 @@ class FileOrganizePageTest : public QObject
 
 private slots:
     void scansAndDisplaysResults();
+    void categorySummaryShowsAllCategories();
     void reportsInvalidDirectory();
 };
 

@@ -7,9 +7,20 @@ namespace FilePilot {
 
 namespace {
 
+QString fallbackCategory()
+{
+    return QStringLiteral("Others");
+}
+
+bool isFallbackRule(const ClassificationRule &rule)
+{
+    return rule.category.compare(fallbackCategory(), Qt::CaseInsensitive) == 0;
+}
+
 bool ruleMatches(const ClassificationRule &rule, const QString &extension)
 {
     return rule.enabled
+        && !isFallbackRule(rule)
         && (rule.matchesAnyExtension || rule.extensions.contains(extension));
 }
 
@@ -21,12 +32,22 @@ RuleEngine::RuleEngine()
 }
 
 RuleEngine::RuleEngine(std::vector<ClassificationRule> rules)
-    : rules_(std::move(rules))
 {
-    for (ClassificationRule &rule : rules_) {
+    rules_.reserve(rules.size());
+    for (ClassificationRule rule : rules) {
+        rule.category = rule.category.trimmed();
+        if (rule.category.isEmpty()) {
+            continue;
+        }
+
+        if (isFallbackRule(rule)) {
+            rule.category = fallbackCategory();
+        }
+
         for (QString &extension : rule.extensions) {
             extension = normalizeExtension(extension);
         }
+        rules_.push_back(std::move(rule));
     }
 
     std::stable_sort(
@@ -51,7 +72,7 @@ QString RuleEngine::classify(const FileInfo &file) const
         }
     }
 
-    return QStringLiteral("Others");
+    return fallbackCategory();
 }
 
 void RuleEngine::classify(ScanResult &result) const
@@ -66,6 +87,7 @@ QString RuleEngine::normalizeExtension(const QString &extension)
     QString normalized = extension.trimmed().toLower();
     while (normalized.startsWith(QLatin1Char('.'))) {
         normalized.remove(0, 1);
+        normalized = normalized.trimmed();
     }
 
     return normalized;

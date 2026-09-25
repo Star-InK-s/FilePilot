@@ -354,7 +354,7 @@ QString FileOrganizePage::countSummary(
               });
 
     QStringList parts;
-    for (int index = 0; index < values.size() && index < 5; ++index) {
+    for (int index = 0; index < values.size(); ++index) {
         const auto &value = values.at(index);
         parts << QStringLiteral("%1 %2").arg(value.first).arg(value.second);
     }

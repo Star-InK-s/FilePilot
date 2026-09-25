@@ -216,6 +216,98 @@ void RuleEngineTest::usesDefaultCategories()
              QStringLiteral("Others"));
 }
 
+void RuleEngineTest::customRulesBeatOthersFallback()
+{
+    const RuleEngine engine({
+        ClassificationRule{
+            QStringLiteral("Fallback"),
+            1,
+            true,
+            QStringLiteral("Others"),
+            {},
+            true,
+        },
+        ClassificationRule{
+            QStringLiteral("Custom"),
+            2000,
+            true,
+            QStringLiteral("Custom"),
+            {QStringLiteral("pdf")},
+            false,
+        },
+    });
+
+    QCOMPARE(engine.classify(fileWithExtension(QStringLiteral("pdf"))),
+             QStringLiteral("Custom"));
+}
+
+void RuleEngineTest::othersIsOnlyFinalFallback()
+{
+    const RuleEngine engine({
+        ClassificationRule{
+            QStringLiteral("OthersWildcard"),
+            1,
+            true,
+            QStringLiteral("Others"),
+            {},
+            true,
+        },
+        ClassificationRule{
+            QStringLiteral("Documents"),
+            2,
+            true,
+            QStringLiteral("Documents"),
+            {QStringLiteral("pdf")},
+            false,
+        },
+    });
+
+    QCOMPARE(engine.classify(fileWithExtension(QStringLiteral("pdf"))),
+             QStringLiteral("Documents"));
+    QCOMPARE(engine.classify(fileWithExtension(QStringLiteral("unknown"))),
+             QStringLiteral("Others"));
+
+    const RuleEngine disabledFallback({
+        ClassificationRule{
+            QStringLiteral("DisabledOthers"),
+            1,
+            false,
+            QStringLiteral("Others"),
+            {},
+            true,
+        },
+    });
+    QCOMPARE(disabledFallback.classify(fileWithExtension(QStringLiteral("pdf"))),
+             QStringLiteral("Others"));
+}
+
+void RuleEngineTest::rejectsEmptyCategoryRules()
+{
+    const RuleEngine engine({
+        ClassificationRule{
+            QStringLiteral("Invalid"),
+            1,
+            true,
+            QStringLiteral("   "),
+            {QStringLiteral("pdf")},
+            false,
+        },
+        ClassificationRule{
+            QStringLiteral("Documents"),
+            2,
+            true,
+            QStringLiteral("Documents"),
+            {QStringLiteral("png")},
+            false,
+        },
+    });
+
+    QCOMPARE(engine.rules().size(), std::size_t{1});
+    QCOMPARE(engine.classify(fileWithExtension(QStringLiteral("pdf"))),
+             QStringLiteral("Others"));
+    QCOMPARE(engine.classify(fileWithExtension(QStringLiteral("png"))),
+             QStringLiteral("Documents"));
+}
 void RuleEngineTest::usesCustomRules()
 {
     const RuleEngine engine({
@@ -299,6 +391,13 @@ void RuleEngineTest::normalizesExtensions()
     QCOMPARE(RuleEngine::normalizeExtension(QStringLiteral(".PDF")), QStringLiteral("pdf"));
     QCOMPARE(RuleEngine::normalizeExtension(QStringLiteral(" .PnG ")), QStringLiteral("png"));
     QCOMPARE(RuleEngine::normalizeExtension(QStringLiteral("..Cpp")), QStringLiteral("cpp"));
+    QCOMPARE(RuleEngine::normalizeExtension(QStringLiteral("pDf")), QStringLiteral("pdf"));
+    QCOMPARE(RuleEngine::normalizeExtension(QString()), QString());
+    QCOMPARE(RuleEngine::normalizeExtension(QStringLiteral("   ")), QString());
+    QCOMPARE(RuleEngine::normalizeExtension(QStringLiteral(".")), QString());
+    QCOMPARE(RuleEngine::normalizeExtension(QStringLiteral("..")), QString());
+    QCOMPARE(RuleEngine::normalizeExtension(QStringLiteral(" . . ")), QString());
+    QCOMPARE(RuleEngine::normalizeExtension(QStringLiteral("report.pdf")), QStringLiteral("report.pdf"));
 
     const RuleEngine engine({
         ClassificationRule{
@@ -812,6 +911,46 @@ void FileOrganizePageTest::scansAndDisplaysResults()
     QVERIFY(categoryStatsLabel->text().contains(QStringLiteral("Images")));
 }
 
+void FileOrganizePageTest::categorySummaryShowsAllCategories()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString root = directory.path();
+
+    const QStringList extensions{
+        QStringLiteral("pdf"),
+        QStringLiteral("png"),
+        QStringLiteral("mp4"),
+        QStringLiteral("mp3"),
+        QStringLiteral("zip"),
+        QStringLiteral("cpp"),
+        QStringLiteral("xyz"),
+    };
+    for (int index = 0; index < extensions.size(); ++index) {
+        QVERIFY(writeFile(
+            QDir(root).filePath(QStringLiteral("file-%1.%2").arg(index).arg(extensions.at(index))),
+            QByteArrayLiteral("x")));
+    }
+
+    FileOrganizePage page(testApplication());
+    auto *directoryEdit = page.findChild<QLineEdit *>(QStringLiteral("directoryEdit"));
+    auto *categoryStatsLabel = page.findChild<QLabel *>(QStringLiteral("categoryStatsLabel"));
+    auto *tableView = page.findChild<QTableView *>(QStringLiteral("fileTableView"));
+    QVERIFY(directoryEdit != nullptr);
+    QVERIFY(categoryStatsLabel != nullptr);
+    QVERIFY(tableView != nullptr);
+
+    directoryEdit->setText(root);
+    QVERIFY(QMetaObject::invokeMethod(&page, "startScan"));
+    QTRY_VERIFY(tableView->model()->rowCount() == extensions.size());
+    QTRY_VERIFY(categoryStatsLabel->text().contains(QStringLiteral("Documents")));
+    QTRY_VERIFY(categoryStatsLabel->text().contains(QStringLiteral("Images")));
+    QTRY_VERIFY(categoryStatsLabel->text().contains(QStringLiteral("Videos")));
+    QTRY_VERIFY(categoryStatsLabel->text().contains(QStringLiteral("Audio")));
+    QTRY_VERIFY(categoryStatsLabel->text().contains(QStringLiteral("Archives")));
+    QTRY_VERIFY(categoryStatsLabel->text().contains(QStringLiteral("Programming")));
+    QTRY_VERIFY(categoryStatsLabel->text().contains(QStringLiteral("Others")));
+}
 void FileOrganizePageTest::reportsInvalidDirectory()
 {
     QTemporaryDir directory;
