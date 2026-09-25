@@ -1,4 +1,6 @@
 add_executable(filepilot_tests
+    ExecutionTestCases.cpp
+    ExecutionTestCases.h
     TestCases.h
     test_filepilot.cpp
 )

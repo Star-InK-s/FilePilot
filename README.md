@@ -4,9 +4,9 @@ FilePilot 是一个面向 Windows 11 的本地文件整理与备份桌面工具�
 C++17、Qt 6 Widgets、SQLite、CMake 和 Git，目标是形成一个结构完整、
 可读、可维护的本科实习个人项目。
 
-当前代码处于 **Phase 4：整理预览**。本阶段实现了目录选择、后台扫描、
-扫描进度、错误收集、文件统计、RuleEngine 分类、整理计划和 Qt Model/View 预览。移动、
-复制、删除、冲突执行、重复文件检测、备份和撤销操作均未实现。
+当前代码处于 **Phase 5A：整理执行基础流程**。本阶段实现了目录选择、后台扫描、
+扫描进度、错误收集、文件统计、RuleEngine 分类、整理计划、执行前验证、冲突决策、FileOperator 和 Qt Model/View 预览。
+真正执行流程使用临时文件安全复制和同卷移动，但仍不包含重复文件检测、备份、SQLite 历史或撤销。
 
 ## 当前功能
 
@@ -133,7 +133,7 @@ FilePilot/
 - `NoOp` 明确表示 sourcePath 与 destinationPath 词法等价
 - 不调用 exists、copy、move、rename 或 remove
 - Phase 4 只进行 lexical normalization 和静态路径检查
-- Phase 5 必须重新验证 canonical path、volume identity、reparse point、实际目标目录身份和文件系统状态
+- Phase 5A 的执行入口仍重新验证 canonical path、volume identity、reparse point、实际目标目录身份和文件系统状态
 - 无效 category、Windows 保留名称、非法字符、路径逃逸和非法文件名会生成 Invalid 项
 
 `OrganizePreviewModel` 使用 `QAbstractTableModel` 展示：
@@ -236,18 +236,18 @@ ctest --test-dir build --output-on-failure
 - 当前扫描结果只保存在内存中，没有 SQLite 业务数据持久化。
 - 自定义分类规则目前只能通过 `RuleEngine` 接口传入，尚无规则编辑 UI 或持久化。
 - 整理计划只进行词法路径规划，不检查目标文件是否存在；冲突检测属于 Phase 5。
-- `executableCandidates()` 只是候选集合，Phase 5 执行器入口仍必须调用 `OrganizeExecutionPrevalidator` 重新验证。
+- `executableCandidates()` 只是候选集合，执行器入口仍调用 `OrganizeExecutionPrevalidator` 重新验证。
 ## 下一阶段
 
-Phase 5 将实现整理执行和冲突处理：
+Phase 5B 将继续整理执行：
 
-- 让执行器消费现有 `OrganizePlan`
-- 执行前重新验证计划项
-- 检查目标文件冲突
-- 实现覆盖、跳过和自动重命名策略
-- 执行移动操作并记录错误
-- 执行过程提供进度和取消
-- 不包含重复文件检测、备份或 SQLite 历史持久化
+- 增强冲突策略边界测试
+- 完善 Windows 原子替换和异常恢复
+- 增加更完整的执行日志模型
+- 优化部分成功、取消和错误展示
+- 为后续 SQLite 历史持久化准备结果结构
+
+Phase 5B 不包含重复文件检测、备份、撤销或 SQLite 写入。
 ## License
 
 MIT。第三方组件和调研来源见 `THIRD_PARTY_NOTICES.md`。

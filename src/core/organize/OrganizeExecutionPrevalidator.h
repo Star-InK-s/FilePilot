@@ -12,19 +12,25 @@ struct ExecutionValidationResult {
     QString message;
 };
 
-// Phase 5 implements this boundary with real filesystem checks. OrganizePlan
-// candidates are lexical planning results and are never execution-safe on their own.
 class OrganizeExecutionPrevalidator
 {
 public:
-    virtual ~OrganizeExecutionPrevalidator() = default;
+    ExecutionValidationResult validateTargetRoot(
+        const OrganizePlanProvenance &provenance) const;
 
-    virtual ExecutionValidationResult validateTargetRoot(
-        const OrganizePlanProvenance &provenance) const = 0;
-
-    virtual ExecutionValidationResult validateCandidate(
+    ExecutionValidationResult validateCandidate(
         const OrganizePlanProvenance &provenance,
-        const OrganizePlanItem &item) const = 0;
+        const OrganizePlanItem &item) const;
+
+private:
+    struct TargetRootSnapshot {
+        bool valid = false;
+        quint32 volumeSerial = 0;
+        quint64 fileId = 0;
+    };
+
+    mutable bool targetRootCaptured_ = false;
+    mutable TargetRootSnapshot targetRootSnapshot_;
 };
 
 } // namespace FilePilot

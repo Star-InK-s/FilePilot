@@ -1,6 +1,8 @@
 #pragma once
 
 #include "core/model/TaskState.h"
+#include "core/execution/ExecutionTypes.h"
+#include "core/execution/OrganizeExecutionTask.h"
 #include "core/organize/OrganizePlan.h"
 #include "core/tasks/ScanTask.h"
 
@@ -9,6 +11,7 @@
 class QLabel;
 class QLineEdit;
 class QPushButton;
+class QProgressBar;
 class QTableView;
 
 namespace FilePilot {
@@ -32,6 +35,8 @@ public slots:
     void generatePreview();
     void confirmPlan();
     void cancelPlan();
+    void startExecution();
+    void cancelExecution();
 
 signals:
     void taskStateChanged(FilePilot::TaskState state);
@@ -49,6 +54,11 @@ private slots:
     void handleCompleted(FilePilot::ScanResult result);
     void handleFailed(QString message);
     void handleCancelled();
+    void handleExecutionState(TaskState state);
+    void handleExecutionProgress(qint64 completed, qint64 total, QString currentFile);
+    void handleExecutionResult(ExecutionResult result);
+    void handleExecutionFailure(QString message);
+    void handleExecutionCancelled();
 
 private:
     void buildUi();
@@ -66,6 +76,7 @@ private:
 
     Application &application_;
     ScanTask scanTask_;
+    OrganizeExecutionTask executionTask_;
     FileTableModel *fileModel_ = nullptr;
     QLineEdit *directoryEdit_ = nullptr;
     QPushButton *chooseDirectoryButton_ = nullptr;
@@ -88,12 +99,18 @@ private:
     QPushButton *generatePreviewButton_ = nullptr;
     QPushButton *confirmPlanButton_ = nullptr;
     QPushButton *cancelPlanButton_ = nullptr;
+    QPushButton *executePlanButton_ = nullptr;
+    QPushButton *cancelExecutionButton_ = nullptr;
     QTableView *previewTableView_ = nullptr;
+    QLabel *executionCurrentFileLabel_ = nullptr;
+    QLabel *executionSummaryLabel_ = nullptr;
+    QProgressBar *executionProgressBar_ = nullptr;
     OrganizePreviewModel *previewModel_ = nullptr;
     ScanResult lastScanResult_;
     OrganizePlan currentPlan_;
     bool hasScanResult_ = false;
     bool planConfirmed_ = false;
+    bool planLocked_ = false;
     quint64 planGeneration_ = 0;
     quint64 scanGeneration_ = 0;
     QString currentScanSourceRoot_;

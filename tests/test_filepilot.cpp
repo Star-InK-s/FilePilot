@@ -1,3 +1,4 @@
+#include "ExecutionTestCases.h"
 #include "TestCases.h"
 
 #include "app/Application.h"
@@ -1669,8 +1670,18 @@ void FileOrganizePageTest::generatesPreviewAndConfirmsWithoutFilesystemChanges()
     secondAfter.close();
     QVERIFY(QFile::exists(firstPath));
     QVERIFY(QFile::exists(secondPath));
-    QVERIFY(!QFileInfo(QDir(targetRoot).filePath(QStringLiteral("Documents/first.txt"))).exists());
+        QVERIFY(!QFileInfo(QDir(targetRoot).filePath(QStringLiteral("Documents/first.txt"))).exists());
     QVERIFY(!QFileInfo(QDir(targetRoot).filePath(QStringLiteral("Images/second.png"))).exists());
+
+    QVERIFY(QDir().mkpath(targetRoot));
+    QVERIFY(QMetaObject::invokeMethod(&page, "startExecution"));
+    QTRY_VERIFY(previewStatusLabel->text().contains(QStringLiteral("整理执行完成"))
+        || previewStatusLabel->text().contains(QStringLiteral("整理执行失败"))
+        || previewStatusLabel->text().contains(QStringLiteral("整理执行已取消")));
+QVERIFY(!QFile::exists(firstPath));
+    QVERIFY(!QFile::exists(secondPath));
+    QVERIFY(QFileInfo(QDir(targetRoot).filePath(QStringLiteral("Documents/first.txt"))).exists());
+    QVERIFY(QFileInfo(QDir(targetRoot).filePath(QStringLiteral("Images/second.png"))).exists());
 
     QVERIFY(QMetaObject::invokeMethod(&page, "cancelPlan"));
     QTRY_COMPARE(previewTableView->model()->rowCount(), 0);
@@ -1740,6 +1751,22 @@ int main(int argc, char *argv[])
 
     int status = 0;
     {
+        FilePilot::Test::OrganizeExecutionPrevalidatorTest test;
+        status |= QTest::qExec(&test, argc, argv);
+    }
+    {
+        FilePilot::Test::ConflictResolverTest test;
+        status |= QTest::qExec(&test, argc, argv);
+    }
+    {
+        FilePilot::Test::FileOperatorTest test;
+        status |= QTest::qExec(&test, argc, argv);
+    }
+    {
+        FilePilot::Test::OrganizeExecutionTaskTest test;
+        status |= QTest::qExec(&test, argc, argv);
+    }
+    {
         FilePilot::Test::OrganizePlanTest test;
         status |= QTest::qExec(&test, argc, argv);
     }
@@ -1773,10 +1800,7 @@ int main(int argc, char *argv[])
     }
     {
         FilePilot::Test::FileOrganizePageTest test;
-        char outputOption[] = "-o";
-        char outputPath[] = "D:/Temp/phase4-safety-page2.txt,txt";
-        char *testArgv[] = {argv[0], outputOption, outputPath};
-        status |= QTest::qExec(&test, 3, testArgv);
+        status |= QTest::qExec(&test, argc, argv);
     }
     {
         FilePilot::Test::SettingsServiceTest test;
