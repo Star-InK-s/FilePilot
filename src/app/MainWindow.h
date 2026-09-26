@@ -6,6 +6,7 @@
 
 class QAction;
 class QCloseEvent;
+class QEvent;
 class QLabel;
 class QListWidget;
 class QProgressBar;
@@ -16,6 +17,7 @@ class QToolBar;
 namespace FilePilot {
 
 class Application;
+class DuplicateFilesPage;
 class FileOrganizePage;
 
 class MainWindow : public QMainWindow
@@ -24,6 +26,7 @@ public:
     explicit MainWindow(Application &application, QWidget *parent = nullptr);
 
 protected:
+    void changeEvent(QEvent *event) override;
     void closeEvent(QCloseEvent *event) override;
 
 private:
@@ -33,6 +36,8 @@ private:
     QStackedWidget *buildPages();
     QWidget *buildProgressPanel();
     void restoreWindowState();
+    void updatePageCommands(int index);
+    void refreshFluentIcons();
     void updateTaskState(TaskState state);
     void updateTaskProgress(qint64 scannedFileCount,
                             const QString &currentDirectory,
@@ -43,8 +48,12 @@ private:
     QListWidget *navigation_ = nullptr;
     QStackedWidget *pageStack_ = nullptr;
     FileOrganizePage *organizePage_ = nullptr;
+    DuplicateFilesPage *duplicatePage_ = nullptr;
     QAction *chooseDirectoryAction_ = nullptr;
     QAction *scanAction_ = nullptr;
+    QAction *organizeAction_ = nullptr;
+    QAction *duplicateAction_ = nullptr;
+    QAction *backupAction_ = nullptr;
     QLabel *currentTaskLabel_ = nullptr;
     QLabel *taskStateLabel_ = nullptr;
     QProgressBar *taskProgressBar_ = nullptr;

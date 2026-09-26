@@ -66,6 +66,8 @@ add_library(filepilot_gui STATIC
     app/Application.h
     app/MainWindow.cpp
     app/MainWindow.h
+    ui/models/DuplicateModels.cpp
+    ui/models/DuplicateModels.h
     ui/models/ExecutionHistoryModel.cpp
     ui/models/ExecutionHistoryModel.h
     ui/models/ExecutionResultModel.cpp
@@ -74,10 +76,14 @@ add_library(filepilot_gui STATIC
     ui/models/OrganizePreviewModel.cpp
     ui/models/OrganizePreviewModel.h
     ui/models/FileTableModel.h
+    ui/pages/DuplicateFilesPage.cpp
+    ui/pages/DuplicateFilesPage.h
     ui/pages/FileOrganizePage.cpp
     ui/pages/FileOrganizePage.h
     ui/pages/Pages.cpp
     ui/pages/Pages.h
+    ui/presenters/DuplicateTheme.cpp
+    ui/presenters/DuplicateTheme.h
 )
 
 target_include_directories(filepilot_gui
