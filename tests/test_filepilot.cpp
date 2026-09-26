@@ -1740,6 +1740,23 @@ void MainWindowTest::switchesPagesThroughNavigation()
 } // namespace Test
 } // namespace FilePilot
 
+bool shouldRunTestClass(const char *className)
+{
+    const QByteArray selected = qgetenv("FILEPILOT_TEST_CLASS");
+    return selected.isEmpty() || selected == className;
+}
+
+template<typename TestClass>
+int runTestClass(const char *className, int argc, char *argv[])
+{
+    if (!shouldRunTestClass(className)) {
+        return 0;
+    }
+
+    TestClass test;
+    return QTest::qExec(&test, argc, argv);
+}
+
 int main(int argc, char *argv[])
 {
     QTemporaryDir applicationData;
@@ -1750,70 +1767,38 @@ int main(int argc, char *argv[])
     FilePilot::Application application(argc, argv, applicationData.path());
 
     int status = 0;
-    {
-        FilePilot::Test::OrganizeExecutionPrevalidatorTest test;
-        status |= QTest::qExec(&test, argc, argv);
-    }
-    {
-        FilePilot::Test::ConflictResolverTest test;
-        status |= QTest::qExec(&test, argc, argv);
-    }
-    {
-        FilePilot::Test::FileOperatorTest test;
-        status |= QTest::qExec(&test, argc, argv);
-    }
-    {
-        FilePilot::Test::OrganizeExecutionTaskTest test;
-        status |= QTest::qExec(&test, argc, argv);
-    }
-    {
-        FilePilot::Test::OrganizePlanTest test;
-        status |= QTest::qExec(&test, argc, argv);
-    }
-    {
-        FilePilot::Test::OrganizePlannerTest test;
-        status |= QTest::qExec(&test, argc, argv);
-    }
-    {
-        FilePilot::Test::OrganizePreviewModelTest test;
-        status |= QTest::qExec(&test, argc, argv);
-    }
-    {
-        FilePilot::Test::RuleEngineTest test;
-        status |= QTest::qExec(&test, argc, argv);
-    }
-    {
-        FilePilot::Test::CoreModelTest test;
-        status |= QTest::qExec(&test, argc, argv);
-    }
-    {
-        FilePilot::Test::ScanServiceTest test;
-        status |= QTest::qExec(&test, argc, argv);
-    }
-    {
-        FilePilot::Test::ScanTaskTest test;
-        status |= QTest::qExec(&test, argc, argv);
-    }
-    {
-        FilePilot::Test::FileTableModelTest test;
-        status |= QTest::qExec(&test, argc, argv);
-    }
-    {
-        FilePilot::Test::FileOrganizePageTest test;
-        status |= QTest::qExec(&test, argc, argv);
-    }
-    {
-        FilePilot::Test::SettingsServiceTest test;
-        status |= QTest::qExec(&test, argc, argv);
-    }
-    {
-        FilePilot::Test::LogManagerTest test;
-        status |= QTest::qExec(&test, argc, argv);
-    }
-    {
-        FilePilot::Test::MainWindowTest test;
-        status |= QTest::qExec(&test, argc, argv);
-    }
+    status |= runTestClass<FilePilot::Test::OrganizeExecutionPrevalidatorTest>(
+        "OrganizeExecutionPrevalidatorTest", argc, argv);
+    status |= runTestClass<FilePilot::Test::ConflictResolverTest>(
+        "ConflictResolverTest", argc, argv);
+    status |= runTestClass<FilePilot::Test::FileOperatorTest>(
+        "FileOperatorTest", argc, argv);
+    status |= runTestClass<FilePilot::Test::OrganizeExecutionTaskTest>(
+        "OrganizeExecutionTaskTest", argc, argv);
+    status |= runTestClass<FilePilot::Test::OrganizePlanTest>(
+        "OrganizePlanTest", argc, argv);
+    status |= runTestClass<FilePilot::Test::OrganizePlannerTest>(
+        "OrganizePlannerTest", argc, argv);
+    status |= runTestClass<FilePilot::Test::OrganizePreviewModelTest>(
+        "OrganizePreviewModelTest", argc, argv);
+    status |= runTestClass<FilePilot::Test::RuleEngineTest>(
+        "RuleEngineTest", argc, argv);
+    status |= runTestClass<FilePilot::Test::CoreModelTest>(
+        "CoreModelTest", argc, argv);
+    status |= runTestClass<FilePilot::Test::ScanServiceTest>(
+        "ScanServiceTest", argc, argv);
+    status |= runTestClass<FilePilot::Test::ScanTaskTest>(
+        "ScanTaskTest", argc, argv);
+    status |= runTestClass<FilePilot::Test::FileTableModelTest>(
+        "FileTableModelTest", argc, argv);
+    status |= runTestClass<FilePilot::Test::FileOrganizePageTest>(
+        "FileOrganizePageTest", argc, argv);
+    status |= runTestClass<FilePilot::Test::SettingsServiceTest>(
+        "SettingsServiceTest", argc, argv);
+    status |= runTestClass<FilePilot::Test::LogManagerTest>(
+        "LogManagerTest", argc, argv);
+    status |= runTestClass<FilePilot::Test::MainWindowTest>(
+        "MainWindowTest", argc, argv);
 
     return status;
 }

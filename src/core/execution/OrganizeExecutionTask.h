@@ -26,6 +26,7 @@ public:
     OrganizeExecutionTask &operator=(const OrganizeExecutionTask &) = delete;
 
     bool start(const OrganizePlan &plan,
+               const ExecutionContext &context,
                ConflictPolicy policy = ConflictPolicy::AutoRename);
     void cancel();
 
@@ -49,6 +50,7 @@ private:
     std::shared_ptr<std::atomic_bool> cancellationToken_;
     std::atomic_bool active_{false};
     std::atomic<TaskState> state_{TaskState::Idle};
+    QHash<QString, PublishedMoveRecoveryState> recoveryStates_;
 };
 
 } // namespace FilePilot

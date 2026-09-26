@@ -671,7 +671,14 @@ void FileOrganizePage::startExecution()
     executionProgressBar_->setValue(0);
     updateControls(scanTask_.state());
 
-    if (!executionTask_.start(currentPlan_, ConflictPolicy::AutoRename)) {
+    const ExecutionContext executionContext{
+        targetRootEdit_->text().trimmed(),
+        currentScanSourceRoot_,
+        planGeneration_,
+        scanGeneration_,
+    };
+    if (!executionTask_.start(
+            currentPlan_, executionContext, ConflictPolicy::AutoRename)) {
         planLocked_ = false;
         previewStatusLabel_->setText(QStringLiteral("整理执行任务当前不可用"));
         updateControls(scanTask_.state());

@@ -55,6 +55,34 @@ bool canTransition(const TaskState from, const TaskState to)
     return false;
 }
 
+bool matchesExecutionContext(
+    const OrganizePlan &plan,
+    const ExecutionContext &context)
+{
+    const OrganizePlanProvenance &provenance = plan.provenance();
+    if (context.targetRoot.isEmpty()
+        || context.scanSourceRoot.isEmpty()
+        || context.planGeneration == 0
+        || context.scanGeneration == 0
+        || provenance.planGeneration != context.planGeneration
+        || provenance.scanGeneration != context.scanGeneration
+        || !OrganizePathValidator::pathsEqual(
+              provenance.normalizedTargetRoot, context.targetRoot)
+        || !OrganizePathValidator::pathsEqual(
+              provenance.scanSourceRoot, context.scanSourceRoot)) {
+        return false;
+    }
+
+    for (const OrganizePlanItem &item : plan.executableCandidates()) {
+        if (item.sourcePath.isEmpty()
+            || !OrganizePathValidator::isPathInsideRoot(
+                   context.scanSourceRoot, item.sourcePath)) {
+            return false;
+        }
+    }
+
+    return true;
+}
 void addResult(ExecutionResult &result, ExecutionItemResult item)
 {
     switch (item.status) {
@@ -74,12 +102,43 @@ void addResult(ExecutionResult &result, ExecutionItemResult item)
         ++result.summary.cancelled;
         break;
     case ExecutionItemStatus::SourceCleanupFailed:
-        ++result.summary.failed;
         ++result.summary.sourceCleanupFailed;
         break;
     }
 
     result.items.push_back(std::move(item));
+}
+
+QString effectiveExecutionId(
+    const ExecutionContext &context,
+    const ConflictPolicy policy)
+{
+    if (!context.executionId.isEmpty()) {
+        return context.executionId
+            + QLatin1Char(':')
+            + QString::number(static_cast<int>(policy));
+    }
+
+    return OrganizePathValidator::normalizePath(context.targetRoot).toLower()
+        + QLatin1Char('\n')
+        + OrganizePathValidator::normalizePath(context.scanSourceRoot).toLower()
+        + QLatin1Char('\n')
+        + QString::number(context.planGeneration)
+        + QLatin1Char(':')
+        + QString::number(context.scanGeneration)
+        + QLatin1Char(':')
+        + QString::number(static_cast<int>(policy));
+}
+
+QString recoveryKey(
+    const OrganizePlanItem &item,
+    const QString &executionId)
+{
+    return executionId
+        + QLatin1Char('\n')
+        + OrganizePathValidator::normalizePath(item.sourcePath).toLower()
+        + QLatin1Char('\n')
+        + OrganizePathValidator::normalizePath(item.destinationPath).toLower();
 }
 
 ExecutionItemResult makeResult(
@@ -94,6 +153,7 @@ ExecutionItemResult makeResult(
         status,
         message,
         QDateTime::currentDateTimeUtc(),
+        false,
     };
 }
 
@@ -122,8 +182,12 @@ OrganizeExecutionTask::~OrganizeExecutionTask()
 
 bool OrganizeExecutionTask::start(
     const OrganizePlan &plan,
+    const ExecutionContext &context,
     const ConflictPolicy policy)
 {
+    if (!matchesExecutionContext(plan, context)) {
+        return false;
+    }
     if (active_.exchange(true)) {
         return false;
     }
@@ -138,9 +202,21 @@ bool OrganizeExecutionTask::start(
     cancellationToken_ = std::make_shared<std::atomic_bool>(false);
     setState(TaskState::Preparing);
 
+    const QString executionId = effectiveExecutionId(context, policy);
+    for (auto recovery = recoveryStates_.begin();
+         recovery != recoveryStates_.end();) {
+        if (recovery.value().executionId != executionId) {
+            recovery = recoveryStates_.erase(recovery);
+        } else {
+            ++recovery;
+        }
+    }
+
     const OrganizePlan planCopy = plan;
-    auto *thread = QThread::create([this, planCopy, policy] {
-        ExecutionResult result;
+    auto *thread = QThread::create(
+        [this, planCopy, policy, executionId,
+         planGeneration = context.planGeneration,
+         scanGeneration = context.scanGeneration] {        ExecutionResult result;
         bool wasCancelled = false;
         OrganizeExecutionPrevalidator prevalidator;
         ConflictResolver conflictResolver;
@@ -190,9 +266,6 @@ bool OrganizeExecutionTask::start(
             const std::vector<OrganizePlanItem> candidates =
                 planCopy.executableCandidates();
             result.summary.planned = static_cast<qint64>(candidates.size());
-            const std::vector<ConflictDecision> decisions =
-                conflictResolver.resolve(candidates, policy);
-
             QSet<QString> reservedDestinations;
             const auto reportProgress =
                 [this, &lastProgress, &result](const QString &currentFile) {
@@ -207,115 +280,140 @@ bool OrganizeExecutionTask::start(
                         currentFile);
                 };
 
-            for (const ConflictDecision &decision : decisions) {
+            for (const OrganizePlanItem &item : candidates) {
                 if (cancellationToken_->load(std::memory_order_relaxed)) {
                     wasCancelled = true;
                     addResult(
                         result,
                         makeResult(
-                            decision.item,
+                            item,
                             ExecutionItemStatus::Cancelled,
-                            decision.destinationPath,
+                            item.destinationPath,
                             QStringLiteral("执行已取消")));
-                    reportProgress(decision.item.sourcePath);
-                    continue;
-                }
-
-                if (decision.action == ConflictDecisionAction::Reject) {
-                    addResult(
-                        result,
-                        makeResult(
-                            decision.item,
-                            ExecutionItemStatus::Rejected,
-                            decision.destinationPath,
-                            decision.errorMessage));
-                    reportProgress(decision.item.sourcePath);
-                    continue;
-                }
-
-                if (decision.action == ConflictDecisionAction::Skip) {
-                    addResult(
-                        result,
-                        makeResult(
-                            decision.item,
-                            ExecutionItemStatus::Skipped,
-                            decision.destinationPath,
-                            decision.errorMessage));
-                    reportProgress(decision.item.sourcePath);
+                    reportProgress(item.sourcePath);
                     continue;
                 }
 
                 const ExecutionValidationResult validation =
-                    prevalidator.validateCandidate(
-                        planCopy.provenance(), decision.item);
+                    prevalidator.validateCandidate(planCopy.provenance(), item);
                 if (!validation.valid) {
                     addResult(
                         result,
                         makeResult(
-                            decision.item,
+                            item,
                             ExecutionItemStatus::Rejected,
-                            decision.destinationPath,
+                            item.destinationPath,
                             validation.message));
-                    reportProgress(decision.item.sourcePath);
+                    reportProgress(item.sourcePath);
                     continue;
                 }
 
-                const ConflictDecision currentDecision =
-                    conflictResolver.resolveSingle(
-                        decision.item, policy, reservedDestinations);
-                if (currentDecision.action == ConflictDecisionAction::Reject) {
-                    addResult(
-                        result,
-                        makeResult(
-                            decision.item,
-                            ExecutionItemStatus::Rejected,
-                            currentDecision.destinationPath,
-                            currentDecision.errorMessage));
-                    reportProgress(decision.item.sourcePath);
+                const QString recoveryKeyForItem = recoveryKey(item, executionId);
+                const auto recovery = recoveryStates_.find(recoveryKeyForItem);
+                if (recovery != recoveryStates_.end()) {
+                    reservedDestinations.insert(
+                        OrganizePathValidator::normalizePath(item.destinationPath)
+                            .toLower());
+                    const FileMoveResult recoveryResult =
+                        fileOperator.resumePublishedCleanup(
+                            FileMoveRequest{
+                                item.sourcePath,
+                                item.destinationPath,
+                                ConflictDecisionAction::Proceed,
+                            },
+                            recovery.value(),
+                            *cancellationToken_);
+                    if (recoveryResult.status != ExecutionItemStatus::SourceCleanupFailed) {
+                        recoveryStates_.erase(recovery);
+                    }
+                    if (recoveryResult.status == ExecutionItemStatus::Cancelled) {
+                        wasCancelled = true;
+                    }
+
+                    ExecutionItemResult recoveryItemResult = makeResult(
+                        item,
+                        recoveryResult.status,
+                        recoveryResult.actualDestination,
+                        recoveryResult.errorMessage);
+                    recoveryItemResult.resumedPublishedResult =
+                        recoveryResult.resumedPublishedResult;
+                    addResult(result, std::move(recoveryItemResult));
+                    reportProgress(item.sourcePath);
                     continue;
                 }
-                if (currentDecision.action == ConflictDecisionAction::Skip) {
+
+                const ConflictDecision decision = conflictResolver.resolveSingle(
+                    item, policy, reservedDestinations);
+                if (decision.action == ConflictDecisionAction::Reject) {
                     addResult(
                         result,
                         makeResult(
-                            decision.item,
-                            ExecutionItemStatus::Skipped,
-                            currentDecision.destinationPath,
-                            currentDecision.errorMessage));
-                    reportProgress(decision.item.sourcePath);
+                            item,
+                            ExecutionItemStatus::Rejected,
+                            decision.destinationPath,
+                            decision.errorMessage));
+                    reportProgress(item.sourcePath);
                     continue;
                 }
 
                 reservedDestinations.insert(
-                    OrganizePathValidator::normalizePath(
-                        currentDecision.destinationPath)
+                    OrganizePathValidator::normalizePath(decision.destinationPath)
                         .toLower());
+                if (decision.action == ConflictDecisionAction::Skip) {
+                    addResult(
+                        result,
+                        makeResult(
+                            item,
+                            ExecutionItemStatus::Skipped,
+                            decision.destinationPath,
+                            decision.errorMessage));
+                    reportProgress(item.sourcePath);
+                    continue;
+                }
 
                 const FileMoveResult moveResult = fileOperator.move(
                     FileMoveRequest{
-                        decision.item.sourcePath,
-                        currentDecision.destinationPath,
-                        currentDecision.action,
+                        item.sourcePath,
+                        decision.destinationPath,
+                        decision.action,
+                        decision.expectedDestinationIdentity,
+                        validation.sourceIdentity,
                     },
                     *cancellationToken_);
 
                 if (moveResult.status == ExecutionItemStatus::Cancelled) {
                     wasCancelled = true;
                 }
-                addResult(
-                    result,
-                    makeResult(
-                        decision.item,
-                        moveResult.status,
-                        moveResult.actualDestination,
-                        moveResult.errorMessage));
-                reportProgress(decision.item.sourcePath);
-            }
+                if (moveResult.status == ExecutionItemStatus::SourceCleanupFailed
+                    && moveResult.publishedState) {
+                    PublishedMoveRecoveryState recoveryState =
+                        *moveResult.publishedState;
+                    recoveryState.executionId = executionId;
+                    recoveryState.planGeneration = planGeneration;
+                    recoveryState.scanGeneration = scanGeneration;
+                    recoveryState.policy = policy;
+                    recoveryStates_.insert(
+                        recoveryKeyForItem, std::move(recoveryState));
+                } else {
+                    recoveryStates_.remove(recoveryKeyForItem);
+                }
 
+                ExecutionItemResult itemResult = makeResult(
+                    item,
+                    moveResult.status,
+                    moveResult.actualDestination,
+                    moveResult.errorMessage);
+                itemResult.resumedPublishedResult =
+                    moveResult.resumedPublishedResult;
+                addResult(result, std::move(itemResult));
+                reportProgress(item.sourcePath);
+            }
             result.completed = true;
             result.cancelled = wasCancelled;
             const bool hasErrors =
-                result.summary.failed > 0 || result.summary.rejected > 0;
+                result.summary.failed > 0
+                || result.summary.rejected > 0
+                || result.summary.sourceCleanupFailed > 0;
             const TaskState finalState = wasCancelled
                 ? TaskState::Cancelled
                 : hasErrors

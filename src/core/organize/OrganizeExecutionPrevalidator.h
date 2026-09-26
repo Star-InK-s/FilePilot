@@ -1,15 +1,31 @@
 #pragma once
 
+#include "core/filesystem/FileIdentity.h"
 #include "core/organize/OrganizePlanItem.h"
 #include "core/organize/OrganizePlanProvenance.h"
 
 #include <QString>
 
+#include <utility>
+
 namespace FilePilot {
 
 struct ExecutionValidationResult {
+    ExecutionValidationResult() = default;
+
+    ExecutionValidationResult(
+        const bool isValid,
+        QString validationMessage = {},
+        FileIdentity identity = {})
+        : valid(isValid)
+        , message(std::move(validationMessage))
+        , sourceIdentity(identity)
+    {
+    }
+
     bool valid = false;
     QString message;
+    FileIdentity sourceIdentity;
 };
 
 class OrganizeExecutionPrevalidator

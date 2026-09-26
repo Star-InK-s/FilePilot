@@ -1,5 +1,6 @@
 #include "core/execution/ConflictResolver.h"
 
+#include "core/filesystem/FileIdentity.h"
 #include "core/organize/OrganizePathValidator.h"
 
 #include <QFileInfo>
@@ -17,11 +18,16 @@ QString normalizedKey(const QString &path)
     return OrganizePathValidator::normalizePath(path).toLower();
 }
 
+bool inspectDestination(const QString &path, FilesystemPathInfo &info)
+{
+    QString error;
+    return inspectFilesystemPath(path, info, error) && info.inspected;
+}
+
 bool destinationExists(const QString &path)
 {
-    std::error_code error;
-    return fs::exists(
-        fs::u8path(path.toStdString()), error) && !error;
+    FilesystemPathInfo info;
+    return inspectDestination(path, info) && info.exists();
 }
 
 } // namespace
@@ -64,8 +70,19 @@ ConflictDecision ConflictResolver::resolveSingle(
         return decision;
     }
 
-    if (!destinationExists(item.destinationPath)) {
+    FilesystemPathInfo destinationInfo;
+    if (!inspectDestination(item.destinationPath, destinationInfo)) {
+        decision.action = ConflictDecisionAction::Reject;
+        decision.errorMessage = QStringLiteral("无法确认目标文件身份");
+        return decision;
+    }
+    if (!destinationInfo.exists()) {
         decision.action = ConflictDecisionAction::Proceed;
+        return decision;
+    }
+    if (!destinationInfo.isRegularFile() || !destinationInfo.identity.valid) {
+        decision.action = ConflictDecisionAction::Reject;
+        decision.errorMessage = QStringLiteral("目标路径不是可验证的普通文件");
         return decision;
     }
 
@@ -76,6 +93,7 @@ ConflictDecision ConflictResolver::resolveSingle(
         return decision;
     case ConflictPolicy::Overwrite:
         decision.action = ConflictDecisionAction::Overwrite;
+        decision.expectedDestinationIdentity = destinationInfo.identity;
         return decision;
     case ConflictPolicy::AutoRename: {
         const QString renamed =

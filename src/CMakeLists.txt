@@ -3,6 +3,8 @@ add_library(filepilot_core STATIC
     core/classify/ClassificationRule.h
     core/classify/RuleEngine.cpp
     core/classify/RuleEngine.h
+    core/filesystem/FileIdentity.cpp
+    core/filesystem/FileIdentity.h
     core/logging/LogManager.cpp
     core/logging/LogManager.h
     core/model/AppError.cpp

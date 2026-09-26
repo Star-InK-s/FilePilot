@@ -213,7 +213,13 @@ ExecutionValidationResult OrganizeExecutionPrevalidator::validateCandidate(
         return {false, QStringLiteral("源文件路径身份已发生变化")};
     }
 
-    return {true, QString()};
+    ExecutionValidationResult result{true, QString()};
+#ifdef Q_OS_WIN
+    result.sourceIdentity.valid = true;
+    result.sourceIdentity.volumeSerial = nativeSource.volumeSerial;
+    result.sourceIdentity.fileId = nativeSource.fileId;
+#endif
+    return result;
 }
 
 } // namespace FilePilot

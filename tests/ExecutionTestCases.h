@@ -15,6 +15,7 @@ private slots:
     void rejectsReparseAndInvalidProvenance();
     void rejectsUnsafeDestinationAndNoOp();
     void detectsTargetRootIdentityChange();
+    void rejectsDestinationReparseReplacementAfterValidation();
 };
 
 class ConflictResolverTest : public QObject
@@ -40,6 +41,18 @@ private slots:
     void handlesUnicodePaths();
     void reportsSourceCleanupFailure();
     void handlesSourceInUse();
+    void failsClosedOnCrossVolumeTemporaryVerificationFailure();
+    void rejectsOverwriteTargetIdentityChangeAfterConflictCheck();
+    void rejectsSourceContentChangeAfterTemporaryVerification();
+    void rejectsStableIdentitySourceContentChangeAfterVerification();
+    void rejectsDestinationParentJunctionReplacementAfterVerification();
+    void rejectsSourceParentJunctionReplacementAfterVerification();
+    void requiresTestSeamBetweenFinalIdentityCheckAndReplace();
+    void cancelsBeforePublishWithoutFilesystemSideEffects();
+    void requiresAtomicFileSnapshotSeam();
+    void requiresEnsureParentDirectoryCheckToMkdirSeam();
+    void resumePublishedCleanupRejectsMismatchWithoutResumedFlag();
+    void resumePublishedCleanupSetsResumedFlagOnSuccess();
 };
 
 class OrganizeExecutionTaskTest : public QObject
@@ -51,6 +64,9 @@ private slots:
     void reportsPartialFailure();
     void supportsCancellation();
     void rejectsRepeatedStartAndDoesNotBlockUi();
+    void sourceCleanupFailureDoesNotCreateSecondCopyOnRetry();
+    void rejectsForeignSourceOutsideScanSourceRoot();
+    void doesNotReuseRecoveryStateAcrossExecutionContexts();
 };
 
 } // namespace Test
