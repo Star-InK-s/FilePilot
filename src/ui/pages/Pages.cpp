@@ -37,12 +37,6 @@ PlaceholderPage::PlaceholderPage(const QString &title, QWidget *parent)
     layout->addWidget(emptyLabel, 1);
 }
 
-DuplicateFilesPage::DuplicateFilesPage(QWidget *parent)
-    : PlaceholderPage(QStringLiteral("重复文件"), parent)
-{
-    setObjectName(QStringLiteral("pageDuplicates"));
-}
-
 BackupPage::BackupPage(QWidget *parent)
     : PlaceholderPage(QStringLiteral("备份"), parent)
 {

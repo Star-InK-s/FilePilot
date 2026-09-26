@@ -19,12 +19,6 @@ public:
     explicit PlaceholderPage(const QString &title, QWidget *parent = nullptr);
 };
 
-class DuplicateFilesPage : public PlaceholderPage
-{
-public:
-    explicit DuplicateFilesPage(QWidget *parent = nullptr);
-};
-
 class BackupPage : public PlaceholderPage
 {
 public:
