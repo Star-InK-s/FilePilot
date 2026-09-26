@@ -56,6 +56,8 @@ add_library(filepilot_gui STATIC
     app/Application.h
     app/MainWindow.cpp
     app/MainWindow.h
+    ui/models/ExecutionResultModel.cpp
+    ui/models/ExecutionResultModel.h
     ui/models/FileTableModel.cpp
     ui/models/OrganizePreviewModel.cpp
     ui/models/OrganizePreviewModel.h

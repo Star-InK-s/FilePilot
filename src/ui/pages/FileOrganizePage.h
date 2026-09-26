@@ -19,6 +19,7 @@ namespace FilePilot {
 class Application;
 class FileTableModel;
 class OrganizePreviewModel;
+class ExecutionResultModel;
 
 class FileOrganizePage : public QWidget
 {
@@ -56,6 +57,7 @@ private slots:
     void handleCancelled();
     void handleExecutionState(TaskState state);
     void handleExecutionProgress(qint64 completed, qint64 total, QString currentFile);
+    void handleExecutionItemProgress(ExecutionProgressUpdate progress);
     void handleExecutionResult(ExecutionResult result);
     void handleExecutionFailure(QString message);
     void handleExecutionCancelled();
@@ -72,6 +74,7 @@ private:
     void clearPreview();
     void updatePreviewSummary();
     void invalidatePlan(const QString &reason);
+    void resetExecutionPresentation();
     bool planMatchesCurrentInputs() const;
 
     Application &application_;
@@ -105,12 +108,15 @@ private:
     QLabel *executionCurrentFileLabel_ = nullptr;
     QLabel *executionSummaryLabel_ = nullptr;
     QProgressBar *executionProgressBar_ = nullptr;
+    QTableView *executionResultTableView_ = nullptr;
     OrganizePreviewModel *previewModel_ = nullptr;
+    ExecutionResultModel *executionResultModel_ = nullptr;
     ScanResult lastScanResult_;
     OrganizePlan currentPlan_;
     bool hasScanResult_ = false;
     bool planConfirmed_ = false;
     bool planLocked_ = false;
+    TaskState executionState_ = TaskState::Idle;
     quint64 planGeneration_ = 0;
     quint64 scanGeneration_ = 0;
     QString currentScanSourceRoot_;

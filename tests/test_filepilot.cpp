@@ -13,6 +13,7 @@
 #include "core/model/TaskState.h"
 #include "core/scan/ScanService.h"
 #include "core/tasks/ScanTask.h"
+#include "ui/models/ExecutionResultModel.h"
 #include "ui/models/FileTableModel.h"
 #include "ui/models/OrganizePreviewModel.h"
 #include "ui/pages/FileOrganizePage.h"
@@ -557,6 +558,79 @@ void OrganizePreviewModelTest::resetsAndClears()
     model.clear();
     QCOMPARE(model.rowCount(), 0);
     QVERIFY(model.plan().isEmpty());
+}
+void ExecutionResultModelTest::exposesRowsAndReadableStatuses()
+{
+    ExecutionResult result;
+    OrganizePlanItem first;
+    first.sourcePath = QStringLiteral("C:/source/first.txt");
+    first.destinationPath = QStringLiteral("D:/target/first.txt");
+    OrganizePlanItem second;
+    second.sourcePath = QStringLiteral("C:/source/second.txt");
+    second.destinationPath = QStringLiteral("D:/target/second.txt");
+
+    result.items = {
+        ExecutionItemResult{
+            first,
+            first.destinationPath,
+            ExecutionItemStatus::Succeeded,
+            {},
+            QDateTime::currentDateTimeUtc(),
+            false,
+        },
+        ExecutionItemResult{
+            second,
+            second.destinationPath,
+            ExecutionItemStatus::SourceCleanupFailed,
+            QStringLiteral("源文件清理失败"),
+            QDateTime::currentDateTimeUtc(),
+            false,
+        },
+    };
+
+    ExecutionResultModel model;
+    model.setResult(result);
+    QCOMPARE(model.rowCount(), 2);
+    QCOMPARE(model.columnCount(), ExecutionResultModel::ColumnCount);
+    QCOMPARE(
+        model.data(model.index(0, ExecutionResultModel::SourcePath)).toString(),
+        first.sourcePath);
+    QCOMPARE(
+        model.data(model.index(0, ExecutionResultModel::DestinationPath)).toString(),
+        first.destinationPath);
+    QCOMPARE(
+        model.data(model.index(0, ExecutionResultModel::Status)).toString(),
+        QStringLiteral("成功"));
+    QCOMPARE(
+        model.data(model.index(1, ExecutionResultModel::Status)).toString(),
+        QStringLiteral("清理失败"));
+    QCOMPARE(
+        model.data(model.index(1, ExecutionResultModel::Message)).toString(),
+        QStringLiteral("源文件清理失败"));
+    QCOMPARE(
+        model.headerData(ExecutionResultModel::Status, Qt::Horizontal).toString(),
+        QStringLiteral("状态"));
+}
+
+void ExecutionResultModelTest::formatsCompleteSummaryWithoutMergingCategories()
+{
+    ExecutionSummary summary;
+    summary.planned = 7;
+    summary.succeeded = 3;
+    summary.skipped = 1;
+    summary.rejected = 1;
+    summary.failed = 1;
+    summary.sourceCleanupFailed = 1;
+    summary.cancelled = 0;
+
+    const QString text = ExecutionResultModel::summaryText(summary);
+    QVERIFY(text.contains(QStringLiteral("处理：7")));
+    QVERIFY(text.contains(QStringLiteral("成功：3")));
+    QVERIFY(text.contains(QStringLiteral("跳过：1")));
+    QVERIFY(text.contains(QStringLiteral("拒绝：1")));
+    QVERIFY(text.contains(QStringLiteral("失败：1")));
+    QVERIFY(text.contains(QStringLiteral("清理失败：1")));
+    QVERIFY(text.contains(QStringLiteral("取消：0")));
 }
 void RuleEngineTest::usesDefaultCategories()
 {
@@ -1629,6 +1703,12 @@ void FileOrganizePageTest::generatesPreviewAndConfirmsWithoutFilesystemChanges()
     auto *previewInvalidLabel = page.findChild<QLabel *>(QStringLiteral("previewInvalidLabel"));
     auto *previewStatusLabel = page.findChild<QLabel *>(QStringLiteral("previewStatusLabel"));
     auto *confirmButton = page.findChild<QPushButton *>(QStringLiteral("confirmPlanButton"));
+    auto *executionResultTable =
+        page.findChild<QTableView *>(QStringLiteral("executionResultTableView"));
+    auto *executionSummaryLabel =
+        page.findChild<QLabel *>(QStringLiteral("executionSummaryLabel"));
+    auto *executionProgressBar =
+        page.findChild<QProgressBar *>(QStringLiteral("executionProgressBar"));
     auto *cancelButton = page.findChild<QPushButton *>(QStringLiteral("cancelPlanButton"));
 
     QVERIFY(directoryEdit != nullptr);
@@ -1641,6 +1721,9 @@ void FileOrganizePageTest::generatesPreviewAndConfirmsWithoutFilesystemChanges()
     QVERIFY(previewStatusLabel != nullptr);
     QVERIFY(confirmButton != nullptr);
     QVERIFY(cancelButton != nullptr);
+    QVERIFY(executionResultTable != nullptr);
+    QVERIFY(executionSummaryLabel != nullptr);
+    QVERIFY(executionProgressBar != nullptr);
 
     directoryEdit->setText(root);
     QVERIFY(QMetaObject::invokeMethod(&page, "startScan"));
@@ -1682,12 +1765,144 @@ QVERIFY(!QFile::exists(firstPath));
     QVERIFY(!QFile::exists(secondPath));
     QVERIFY(QFileInfo(QDir(targetRoot).filePath(QStringLiteral("Documents/first.txt"))).exists());
     QVERIFY(QFileInfo(QDir(targetRoot).filePath(QStringLiteral("Images/second.png"))).exists());
+    QCOMPARE(executionResultTable->model()->rowCount(), 2);
+    QVERIFY(executionSummaryLabel->text().contains(QStringLiteral("处理：2")));
+    QVERIFY(executionSummaryLabel->text().contains(QStringLiteral("成功：2")));
+    QVERIFY(executionSummaryLabel->text().contains(QStringLiteral("失败：0")));
+    QCOMPARE(executionProgressBar->maximum(), 2);
+    QCOMPARE(executionProgressBar->value(), 2);
 
     QVERIFY(QMetaObject::invokeMethod(&page, "cancelPlan"));
     QTRY_COMPARE(previewTableView->model()->rowCount(), 0);
     QVERIFY(previewStatusLabel->text().contains(QStringLiteral("整理计划已取消")));
     QVERIFY(!confirmButton->isEnabled());
     QVERIFY(!cancelButton->isEnabled());
+}
+void FileOrganizePageTest::mapsExecutionResultStatesToUi()
+{
+    FileOrganizePage page(testApplication());
+    auto *summaryLabel =
+        page.findChild<QLabel *>(QStringLiteral("executionSummaryLabel"));
+    auto *currentLabel =
+        page.findChild<QLabel *>(QStringLiteral("executionCurrentFileLabel"));
+    auto *progressBar =
+        page.findChild<QProgressBar *>(QStringLiteral("executionProgressBar"));
+    auto *resultTable =
+        page.findChild<QTableView *>(QStringLiteral("executionResultTableView"));
+    auto *statusLabel =
+        page.findChild<QLabel *>(QStringLiteral("previewStatusLabel"));
+    QVERIFY(summaryLabel != nullptr);
+    QVERIFY(currentLabel != nullptr);
+    QVERIFY(progressBar != nullptr);
+    QVERIFY(resultTable != nullptr);
+    QVERIFY(statusLabel != nullptr);
+
+    OrganizePlanItem first;
+    first.sourcePath = QStringLiteral("C:/source/first.txt");
+    first.destinationPath = QStringLiteral("D:/target/first.txt");
+    OrganizePlanItem second;
+    second.sourcePath = QStringLiteral("C:/source/second.txt");
+    second.destinationPath = QStringLiteral("D:/target/second.txt");
+
+    ExecutionResult partial;
+    partial.items = {
+        ExecutionItemResult{
+            first,
+            first.destinationPath,
+            ExecutionItemStatus::Succeeded,
+            {},
+            QDateTime::currentDateTimeUtc(),
+            false,
+        },
+        ExecutionItemResult{
+            second,
+            second.destinationPath,
+            ExecutionItemStatus::Rejected,
+            QStringLiteral("目标路径无效"),
+            QDateTime::currentDateTimeUtc(),
+            false,
+        },
+    };
+    partial.summary.planned = 3;
+    partial.summary.succeeded = 1;
+    partial.summary.rejected = 1;
+    partial.summary.failed = 1;
+
+    QVERIFY(QMetaObject::invokeMethod(
+        &page,
+        "handleExecutionResult",
+        Qt::DirectConnection,
+        Q_ARG(FilePilot::ExecutionResult, partial)));
+    QCOMPARE(statusLabel->text(), QStringLiteral("整理执行部分完成"));
+    QVERIFY(summaryLabel->text().contains(QStringLiteral("处理：3")));
+    QVERIFY(summaryLabel->text().contains(QStringLiteral("成功：1")));
+    QVERIFY(summaryLabel->text().contains(QStringLiteral("拒绝：1")));
+    QVERIFY(summaryLabel->text().contains(QStringLiteral("失败：1")));
+    QVERIFY(!summaryLabel->text().contains(QStringLiteral("失败：2")));
+    QCOMPARE(progressBar->maximum(), 3);
+    QCOMPARE(progressBar->value(), 2);
+    QCOMPARE(resultTable->model()->rowCount(), 2);
+    QCOMPARE(currentLabel->text(), QStringLiteral("当前项：执行结束"));
+
+    ExecutionResult cleanupFailure;
+    cleanupFailure.items = {
+        ExecutionItemResult{
+            first,
+            first.destinationPath,
+            ExecutionItemStatus::SourceCleanupFailed,
+            QStringLiteral("源文件清理失败"),
+            QDateTime::currentDateTimeUtc(),
+            false,
+        },
+    };
+    cleanupFailure.summary.planned = 1;
+    cleanupFailure.summary.sourceCleanupFailed = 1;
+    QVERIFY(QMetaObject::invokeMethod(
+        &page,
+        "handleExecutionResult",
+        Qt::DirectConnection,
+        Q_ARG(FilePilot::ExecutionResult, cleanupFailure)));
+    QVERIFY(statusLabel->text().contains(QStringLiteral("源文件清理失败")));
+    QVERIFY(summaryLabel->text().contains(QStringLiteral("清理失败：1")));
+    QVERIFY(summaryLabel->text().contains(QStringLiteral("失败：0")));
+
+    QVERIFY(QMetaObject::invokeMethod(
+        &page,
+        "handleExecutionState",
+        Qt::DirectConnection,
+        Q_ARG(FilePilot::TaskState, TaskState::Cancelling)));
+    QVERIFY(statusLabel->text().contains(QStringLiteral("正在取消")));
+    QVERIFY(statusLabel->text().contains(QStringLiteral("等待最终结果")));
+
+    ExecutionResult cancelled;
+    cancelled.items = {
+        ExecutionItemResult{
+            first,
+            first.destinationPath,
+            ExecutionItemStatus::Cancelled,
+            QStringLiteral("执行已取消"),
+            QDateTime::currentDateTimeUtc(),
+            false,
+        },
+    };
+    cancelled.summary.planned = 2;
+    cancelled.summary.cancelled = 1;
+    cancelled.cancelled = true;
+    QVERIFY(QMetaObject::invokeMethod(
+        &page,
+        "handleExecutionResult",
+        Qt::DirectConnection,
+        Q_ARG(FilePilot::ExecutionResult, cancelled)));
+    QCOMPARE(statusLabel->text(), QStringLiteral("整理执行已取消"));
+    QCOMPARE(progressBar->maximum(), 2);
+    QCOMPARE(progressBar->value(), 1);
+
+    QVERIFY(QMetaObject::invokeMethod(
+        &page,
+        "handleExecutionFailure",
+        Qt::DirectConnection,
+        Q_ARG(QString, QStringLiteral("任务异常"))));
+    QVERIFY(statusLabel->text().contains(QStringLiteral("整理执行失败")));
 }
 void MainWindowTest::buildsRequiredShell()
 {
@@ -1781,6 +1996,8 @@ int main(int argc, char *argv[])
         "OrganizePlannerTest", argc, argv);
     status |= runTestClass<FilePilot::Test::OrganizePreviewModelTest>(
         "OrganizePreviewModelTest", argc, argv);
+    status |= runTestClass<FilePilot::Test::ExecutionResultModelTest>(
+        "ExecutionResultModelTest", argc, argv);
     status |= runTestClass<FilePilot::Test::RuleEngineTest>(
         "RuleEngineTest", argc, argv);
     status |= runTestClass<FilePilot::Test::CoreModelTest>(

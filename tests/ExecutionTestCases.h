@@ -62,6 +62,7 @@ class OrganizeExecutionTaskTest : public QObject
 private slots:
     void executesPlan();
     void reportsPartialFailure();
+    void reportsFailedStateForInvalidTargetRoot();
     void supportsCancellation();
     void rejectsRepeatedStartAndDoesNotBlockUi();
     void sourceCleanupFailureDoesNotCreateSecondCopyOnRetry();

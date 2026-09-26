@@ -162,6 +162,7 @@ ExecutionItemResult makeResult(
 OrganizeExecutionTask::OrganizeExecutionTask(QObject *parent)
     : QObject(parent)
 {
+    qRegisterMetaType<ExecutionProgressUpdate>();
     qRegisterMetaType<ExecutionItemResult>();
     qRegisterMetaType<ExecutionResult>();
 }
@@ -267,6 +268,22 @@ bool OrganizeExecutionTask::start(
                 planCopy.executableCandidates();
             result.summary.planned = static_cast<qint64>(candidates.size());
             QSet<QString> reservedDestinations;
+            const auto reportItemProgress =
+                [this, &result](
+                    const OrganizePlanItem &item,
+                    const QString &destination,
+                    const QString &action,
+                    const QString &phase) {
+                    emit itemProgressChanged(ExecutionProgressUpdate{
+                        static_cast<qint64>(result.items.size()),
+                        result.summary.planned,
+                        item.sourcePath,
+                        destination,
+                        action,
+                        phase,
+                        result.summary,
+                    });
+                };
             const auto reportProgress =
                 [this, &lastProgress, &result](const QString &currentFile) {
                     const auto now = std::chrono::steady_clock::now();
@@ -314,6 +331,11 @@ bool OrganizeExecutionTask::start(
                     reservedDestinations.insert(
                         OrganizePathValidator::normalizePath(item.destinationPath)
                             .toLower());
+                    reportItemProgress(
+                        item,
+                        item.destinationPath,
+                        QStringLiteral("恢复"),
+                        QStringLiteral("恢复清理"));
                     const FileMoveResult recoveryResult =
                         fileOperator.resumePublishedCleanup(
                             FileMoveRequest{
@@ -345,6 +367,11 @@ bool OrganizeExecutionTask::start(
                 const ConflictDecision decision = conflictResolver.resolveSingle(
                     item, policy, reservedDestinations);
                 if (decision.action == ConflictDecisionAction::Reject) {
+                    reportItemProgress(
+                        item,
+                        decision.destinationPath,
+                        QStringLiteral("拒绝"),
+                        QStringLiteral("已拒绝"));
                     addResult(
                         result,
                         makeResult(
@@ -360,6 +387,11 @@ bool OrganizeExecutionTask::start(
                     OrganizePathValidator::normalizePath(decision.destinationPath)
                         .toLower());
                 if (decision.action == ConflictDecisionAction::Skip) {
+                    reportItemProgress(
+                        item,
+                        decision.destinationPath,
+                        QStringLiteral("跳过"),
+                        QStringLiteral("已跳过"));
                     addResult(
                         result,
                         makeResult(
@@ -371,6 +403,11 @@ bool OrganizeExecutionTask::start(
                     continue;
                 }
 
+                reportItemProgress(
+                    item,
+                    decision.destinationPath,
+                    conflictDecisionName(decision.action),
+                    QStringLiteral("处理中"));
                 const FileMoveResult moveResult = fileOperator.move(
                     FileMoveRequest{
                         item.sourcePath,

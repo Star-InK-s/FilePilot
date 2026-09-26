@@ -128,6 +128,15 @@ struct ExecutionSummary {
     qint64 sourceCleanupFailed = 0;
 };
 
+struct ExecutionProgressUpdate {
+    qint64 completed = 0;
+    qint64 total = 0;
+    QString sourcePath;
+    QString destinationPath;
+    QString action;
+    QString phase;
+    ExecutionSummary summary;
+};
 struct ExecutionResult {
     std::vector<ExecutionItemResult> items;
     ExecutionSummary summary;
@@ -139,5 +148,6 @@ struct ExecutionResult {
 } // namespace FilePilot
 
 Q_DECLARE_METATYPE(FilePilot::ConflictDecision)
+Q_DECLARE_METATYPE(FilePilot::ExecutionProgressUpdate)
 Q_DECLARE_METATYPE(FilePilot::ExecutionItemResult)
 Q_DECLARE_METATYPE(FilePilot::ExecutionResult)

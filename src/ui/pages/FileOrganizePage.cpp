@@ -5,6 +5,7 @@
 #include "core/execution/ExecutionTypes.h"
 #include "core/organize/OrganizePlanner.h"
 #include "ui/models/FileTableModel.h"
+#include "ui/models/ExecutionResultModel.h"
 #include "ui/models/OrganizePreviewModel.h"
 
 #include <QFileDialog>
@@ -257,10 +258,12 @@ void FileOrganizePage::buildUi()
     executionRow->setSpacing(10);
     executionCurrentFileLabel_ = new QLabel(QStringLiteral("当前文件：无"), previewPanel);
     executionCurrentFileLabel_->setObjectName(QStringLiteral("executionCurrentFileLabel"));
+    executionCurrentFileLabel_->setWordWrap(true);
     executionRow->addWidget(executionCurrentFileLabel_, 1);
 
     executionSummaryLabel_ = new QLabel(QStringLiteral("成功：0  跳过：0  失败：0"), previewPanel);
     executionSummaryLabel_->setObjectName(QStringLiteral("executionSummaryLabel"));
+    executionSummaryLabel_->setWordWrap(true);
     executionRow->addWidget(executionSummaryLabel_);
     previewLayout->addLayout(executionRow);
 
@@ -270,6 +273,25 @@ void FileOrganizePage::buildUi()
     executionProgressBar_->setValue(0);
     previewLayout->addWidget(executionProgressBar_);
 
+    auto *executionResultTitle = new QLabel(QStringLiteral("执行结果"), previewPanel);
+    QFont executionResultTitleFont = executionResultTitle->font();
+    executionResultTitleFont.setBold(true);
+    executionResultTitle->setFont(executionResultTitleFont);
+    previewLayout->addWidget(executionResultTitle);
+
+    executionResultTableView_ = new QTableView(previewPanel);
+    executionResultTableView_->setObjectName(QStringLiteral("executionResultTableView"));
+    executionResultModel_ = new ExecutionResultModel(executionResultTableView_);
+    executionResultTableView_->setModel(executionResultModel_);
+    executionResultTableView_->setSelectionBehavior(QAbstractItemView::SelectRows);
+    executionResultTableView_->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    executionResultTableView_->setAlternatingRowColors(true);
+    executionResultTableView_->verticalHeader()->setVisible(false);
+    executionResultTableView_->horizontalHeader()->setStretchLastSection(true);
+    executionResultTableView_->setColumnWidth(ExecutionResultModel::SourcePath, 240);
+    executionResultTableView_->setColumnWidth(ExecutionResultModel::DestinationPath, 260);
+    executionResultTableView_->setColumnWidth(ExecutionResultModel::Status, 100);
+    previewLayout->addWidget(executionResultTableView_, 1);
     rootLayout->addWidget(previewPanel, 2);
 
     connect(chooseDirectoryButton_, &QPushButton::clicked,
@@ -292,6 +314,8 @@ void FileOrganizePage::buildUi()
             this, &FileOrganizePage::handleExecutionState);
     connect(&executionTask_, &OrganizeExecutionTask::progressChanged,
             this, &FileOrganizePage::handleExecutionProgress);
+    connect(&executionTask_, &OrganizeExecutionTask::itemProgressChanged,
+            this, &FileOrganizePage::handleExecutionItemProgress);
     connect(&executionTask_, &OrganizeExecutionTask::completed,
             this, &FileOrganizePage::handleExecutionResult);
     connect(&executionTask_, &OrganizeExecutionTask::failed,
@@ -424,6 +448,22 @@ bool FileOrganizePage::planMatchesCurrentInputs() const
             scanGeneration_,
             currentScanSourceRoot_);
 }
+void FileOrganizePage::resetExecutionPresentation()
+{
+    if (executionResultModel_ != nullptr) {
+        executionResultModel_->clear();
+    }
+    if (executionCurrentFileLabel_ != nullptr) {
+        executionCurrentFileLabel_->setText(QStringLiteral("当前项：无"));
+    }
+    if (executionSummaryLabel_ != nullptr) {
+        executionSummaryLabel_->setText(QStringLiteral("尚未执行"));
+    }
+    if (executionProgressBar_ != nullptr) {
+        executionProgressBar_->setRange(0, 0);
+        executionProgressBar_->setValue(0);
+    }
+}
 void FileOrganizePage::clearPreview()
 {
     currentPlan_.clear();
@@ -449,14 +489,8 @@ void FileOrganizePage::clearPreview()
     if (cancelExecutionButton_ != nullptr) {
         cancelExecutionButton_->setEnabled(false);
     }
-    if (executionCurrentFileLabel_ != nullptr) {
-        executionCurrentFileLabel_->setText(QStringLiteral("当前文件：无"));
-        executionSummaryLabel_->setText(QStringLiteral("成功：0  跳过：0  失败：0"));
-        executionProgressBar_->setRange(0, 100);
-        executionProgressBar_->setValue(0);
-    }
+    resetExecutionPresentation();
 }
-
 void FileOrganizePage::updatePreviewSummary()
 {
     previewTotalLabel_->setText(
@@ -665,10 +699,15 @@ void FileOrganizePage::startExecution()
     }
 
     planLocked_ = true;
-    executionCurrentFileLabel_->setText(QStringLiteral("当前文件：无"));
-    executionSummaryLabel_->setText(QStringLiteral("成功：0  跳过：0  失败：0"));
-    executionProgressBar_->setRange(0, 0);
+    executionState_ = TaskState::Preparing;
+    resetExecutionPresentation();
+    const qint64 total = currentPlan_.plannedCount();
+    executionProgressBar_->setRange(0, static_cast<int>(std::max<qint64>(total, 0)));
     executionProgressBar_->setValue(0);
+    ExecutionSummary initialSummary;
+    initialSummary.planned = total;
+    executionSummaryLabel_->setText(
+        ExecutionResultModel::summaryText(initialSummary));
     updateControls(scanTask_.state());
 
     const ExecutionContext executionContext{
@@ -680,6 +719,7 @@ void FileOrganizePage::startExecution()
     if (!executionTask_.start(
             currentPlan_, executionContext, ConflictPolicy::AutoRename)) {
         planLocked_ = false;
+        executionState_ = TaskState::Failed;
         previewStatusLabel_->setText(QStringLiteral("整理执行任务当前不可用"));
         updateControls(scanTask_.state());
     }
@@ -687,15 +727,27 @@ void FileOrganizePage::startExecution()
 
 void FileOrganizePage::cancelExecution()
 {
-    if (planLocked_) {
-        executionTask_.cancel();
+    if (!planLocked_
+        || (executionState_ != TaskState::Preparing
+            && executionState_ != TaskState::Running)) {
+        return;
     }
+
+    executionTask_.cancel();
+    executionState_ = TaskState::Cancelling;
+    previewStatusLabel_->setText(
+        QStringLiteral("正在取消整理执行，请等待当前文件操作结束"));
+    updateControls(scanTask_.state());
 }
 
 void FileOrganizePage::handleExecutionState(const TaskState state)
 {
+    executionState_ = state;
     updateControls(scanTask_.state());
     switch (state) {
+    case TaskState::Idle:
+        previewStatusLabel_->setText(QStringLiteral("尚未开始整理执行"));
+        break;
     case TaskState::Preparing:
         previewStatusLabel_->setText(QStringLiteral("正在准备整理执行"));
         break;
@@ -703,15 +755,33 @@ void FileOrganizePage::handleExecutionState(const TaskState state)
         previewStatusLabel_->setText(QStringLiteral("正在执行整理计划"));
         break;
     case TaskState::Cancelling:
-        previewStatusLabel_->setText(QStringLiteral("正在取消整理执行"));
+        previewStatusLabel_->setText(
+            QStringLiteral("正在取消整理执行，请等待最终结果"));
         break;
     case TaskState::Completed:
     case TaskState::CompletedWithErrors:
     case TaskState::Cancelled:
     case TaskState::Failed:
-    case TaskState::Idle:
         break;
     }
+}
+
+void FileOrganizePage::handleExecutionItemProgress(
+    const ExecutionProgressUpdate progress)
+{
+    executionCurrentFileLabel_->setText(
+        QStringLiteral("当前项：%1 → %2\n动作：%3  阶段：%4")
+            .arg(progress.sourcePath)
+            .arg(progress.destinationPath)
+            .arg(progress.action)
+            .arg(progress.phase));
+    executionSummaryLabel_->setText(
+        ExecutionResultModel::summaryText(progress.summary));
+    executionProgressBar_->setRange(
+        0, static_cast<int>(std::max<qint64>(progress.total, 0)));
+    executionProgressBar_->setValue(
+        static_cast<int>(std::clamp<qint64>(
+            progress.completed, 0, std::max<qint64>(progress.total, 0))));
 }
 
 void FileOrganizePage::handleExecutionProgress(
@@ -719,39 +789,65 @@ void FileOrganizePage::handleExecutionProgress(
     const qint64 total,
     const QString currentFile)
 {
-    executionCurrentFileLabel_->setText(
-        currentFile.isEmpty()
-            ? QStringLiteral("当前文件：无")
-            : QStringLiteral("当前文件：%1").arg(currentFile));
-    if (total > 0) {
-        executionProgressBar_->setRange(0, static_cast<int>(total));
-        executionProgressBar_->setValue(static_cast<int>(completed));
+    if (!currentFile.isEmpty()
+        && !executionCurrentFileLabel_->text().contains(QStringLiteral("当前项："))) {
+        executionCurrentFileLabel_->setText(
+            QStringLiteral("当前文件：%1").arg(currentFile));
     }
+    executionProgressBar_->setRange(
+        0, static_cast<int>(std::max<qint64>(total, 0)));
+    executionProgressBar_->setValue(
+        static_cast<int>(std::clamp<qint64>(
+            completed, 0, std::max<qint64>(total, 0))));
 }
 
 void FileOrganizePage::handleExecutionResult(const ExecutionResult result)
 {
     planLocked_ = false;
     planConfirmed_ = false;
-    executionProgressBar_->setRange(0, 100);
-    executionProgressBar_->setValue(result.cancelled ? 0 : 100);
+    executionState_ = result.cancelled
+        ? TaskState::Cancelled
+        : !result.fatalError.isEmpty()
+            ? TaskState::Failed
+            : result.summary.failed > 0
+                || result.summary.rejected > 0
+                || result.summary.sourceCleanupFailed > 0
+                ? TaskState::CompletedWithErrors
+                : TaskState::Completed;
+
+    const qint64 processed = static_cast<qint64>(result.items.size());
+    const qint64 total = std::max(result.summary.planned, processed);
+    executionProgressBar_->setRange(0, static_cast<int>(total));
+    executionProgressBar_->setValue(static_cast<int>(processed));
     executionSummaryLabel_->setText(
-        QStringLiteral("成功：%1  跳过：%2  失败：%3")
-            .arg(result.summary.succeeded)
-            .arg(result.summary.skipped)
-            .arg(result.summary.failed + result.summary.rejected));
+        ExecutionResultModel::summaryText(result.summary));
+    executionResultModel_->setResult(result);
+    executionCurrentFileLabel_->setText(QStringLiteral("当前项：执行结束"));
+
     QStringList executionErrors;
     for (const ExecutionItemResult &itemResult : result.items) {
         if (!itemResult.errorMessage.isEmpty()) {
-            executionErrors << itemResult.errorMessage;
+            executionErrors << QStringLiteral("%1：%2")
+                .arg(ExecutionResultModel::statusText(itemResult.status))
+                .arg(itemResult.errorMessage);
         }
     }
     previewStatusLabel_->setToolTip(executionErrors.join(QStringLiteral("\n")));
-    previewStatusLabel_->setText(result.cancelled
-        ? QStringLiteral("整理执行已取消")
-        : result.summary.failed > 0 || result.summary.rejected > 0
-            ? QStringLiteral("整理执行完成，但存在失败或无效项")
-            : QStringLiteral("整理执行完成"));
+    if (result.summary.sourceCleanupFailed > 0) {
+        previewStatusLabel_->setText(
+            result.cancelled
+                ? QStringLiteral("整理执行已取消，但存在源文件清理失败项")
+                : QStringLiteral("整理执行完成，但存在源文件清理失败项"));
+    } else if (result.cancelled) {
+        previewStatusLabel_->setText(QStringLiteral("整理执行已取消"));
+    } else if (!result.fatalError.isEmpty()) {
+        previewStatusLabel_->setText(
+            QStringLiteral("整理执行失败：%1").arg(result.fatalError));
+    } else if (result.summary.failed > 0 || result.summary.rejected > 0) {
+        previewStatusLabel_->setText(QStringLiteral("整理执行部分完成"));
+    } else {
+        previewStatusLabel_->setText(QStringLiteral("整理执行完成"));
+    }
     updateControls(scanTask_.state());
 }
 
@@ -759,27 +855,31 @@ void FileOrganizePage::handleExecutionFailure(const QString message)
 {
     planLocked_ = false;
     planConfirmed_ = false;
+    executionState_ = TaskState::Failed;
+    executionResultModel_->clear();
     executionProgressBar_->setRange(0, 100);
     executionProgressBar_->setValue(0);
+    executionSummaryLabel_->setText(QStringLiteral("执行未产生完整结果"));
     previewStatusLabel_->setText(QStringLiteral("整理执行失败：%1").arg(message));
     updateControls(scanTask_.state());
 }
 
 void FileOrganizePage::handleExecutionCancelled()
 {
-    planLocked_ = false;
-    planConfirmed_ = false;
-    executionProgressBar_->setRange(0, 100);
-    executionProgressBar_->setValue(0);
-    previewStatusLabel_->setText(QStringLiteral("整理执行已取消"));
-    updateControls(scanTask_.state());
+    previewStatusLabel_->setText(
+        QStringLiteral("整理执行已取消，正在汇总最终结果"));
 }
+
 void FileOrganizePage::updateControls(const TaskState state)
 {
     const bool scanActive = state == TaskState::Preparing
         || state == TaskState::Running
         || state == TaskState::Cancelling;
-    const bool active = scanActive || planLocked_;
+    const bool executionActive =
+        executionState_ == TaskState::Preparing
+        || executionState_ == TaskState::Running
+        || executionState_ == TaskState::Cancelling;
+    const bool active = scanActive || planLocked_ || executionActive;
 
     directoryEdit_->setEnabled(!active);
     chooseDirectoryButton_->setEnabled(!active);
@@ -794,9 +894,11 @@ void FileOrganizePage::updateControls(const TaskState state)
     executePlanButton_->setEnabled(
         !active && planConfirmed_ && planMatchesCurrentInputs());
     cancelExecutionButton_->setEnabled(
-        planLocked_ && executionTask_.isActive());
+        planLocked_
+        && executionTask_.isActive()
+        && (executionState_ == TaskState::Preparing
+            || executionState_ == TaskState::Running));
 }
-
 void FileOrganizePage::updateSummary(
     const qint64 fileCount,
     const qint64 totalSizeBytes,

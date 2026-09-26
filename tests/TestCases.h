@@ -70,6 +70,14 @@ private slots:
     void resetsAndClears();
 };
 
+class ExecutionResultModelTest : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void exposesRowsAndReadableStatuses();
+    void formatsCompleteSummaryWithoutMergingCategories();
+};
 class RuleEngineTest : public QObject
 {
     Q_OBJECT
@@ -136,6 +144,7 @@ private slots:
     void scansAndDisplaysResults();
     void categorySummaryShowsAllCategories();
     void generatesPreviewAndConfirmsWithoutFilesystemChanges();
+    void mapsExecutionResultStatesToUi();
     void invalidatesPlanWhenTargetRootChanges();
     void invalidatesPlanWhenRescanning();
     void regeneratingPlanResetsConfirmation();

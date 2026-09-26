@@ -38,6 +38,7 @@ signals:
     void progressChanged(qint64 completed,
                          qint64 total,
                          QString currentFile);
+    void itemProgressChanged(FilePilot::ExecutionProgressUpdate progress);
     void completed(FilePilot::ExecutionResult result);
     void failed(QString message);
     void cancelled();

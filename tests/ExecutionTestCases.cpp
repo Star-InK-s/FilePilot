@@ -718,9 +718,21 @@ void OrganizeExecutionTaskTest::executesPlan()
 
     OrganizeExecutionTask task;
     QSignalSpy completedSpy(&task, &OrganizeExecutionTask::completed);
+    QSignalSpy itemProgressSpy(
+        &task, &OrganizeExecutionTask::itemProgressChanged);
     QVERIFY(task.start(plan, executionContext(plan), ConflictPolicy::AutoRename));
     QTRY_COMPARE(completedSpy.count(), 1);
     QCOMPARE(task.state(), TaskState::Completed);
+    QVERIFY(!itemProgressSpy.isEmpty());
+    for (const QList<QVariant> &arguments : itemProgressSpy) {
+        const ExecutionProgressUpdate progress =
+            arguments.at(0).value<ExecutionProgressUpdate>();
+        QCOMPARE(progress.total, 2);
+        QVERIFY(!progress.sourcePath.isEmpty());
+        QVERIFY(!progress.destinationPath.isEmpty());
+        QVERIFY(!progress.action.isEmpty());
+        QVERIFY(!progress.phase.isEmpty());
+    }
 
     const ExecutionResult result =
         completedSpy.at(0).at(0).value<ExecutionResult>();
@@ -772,6 +784,39 @@ void OrganizeExecutionTaskTest::reportsPartialFailure()
     QCOMPARE(result.items.size(), std::size_t{2});
 }
 
+void OrganizeExecutionTaskTest::reportsFailedStateForInvalidTargetRoot()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString sourceRoot = directory.path();
+    const QString source = QDir(sourceRoot).filePath(QStringLiteral("source.txt"));
+    QVERIFY(writeTestFile(source, QByteArrayLiteral("source")));
+    const QString missingTargetRoot =
+        QDir(directory.path()).filePath(QStringLiteral("missing-target"));
+
+    const OrganizePlan plan = makePlan(
+        {
+            actualItem(
+                source,
+                OrganizePathValidator::destinationPath(
+                    missingTargetRoot,
+                    QStringLiteral("Documents"),
+                    QStringLiteral("source.txt")),
+                QStringLiteral("Documents"),
+                QStringLiteral("source.txt")),
+        },
+        missingTargetRoot,
+        sourceRoot);
+
+    OrganizeExecutionTask task;
+    QSignalSpy failedSpy(&task, &OrganizeExecutionTask::failed);
+    QSignalSpy completedSpy(&task, &OrganizeExecutionTask::completed);
+    QVERIFY(task.start(plan, executionContext(plan), ConflictPolicy::AutoRename));
+    QTRY_COMPARE(failedSpy.count(), 1);
+    QCOMPARE(task.state(), TaskState::Failed);
+    QCOMPARE(completedSpy.count(), 0);
+    QVERIFY(QFileInfo::exists(source));
+}
 void OrganizeExecutionTaskTest::supportsCancellation()
 {
     QTemporaryDir directory;
