@@ -15,6 +15,12 @@ add_library(filepilot_core STATIC
     core/model/FileInfo.h
     core/model/TaskState.cpp
     core/model/TaskState.h
+    core/duplicates/DuplicateFinder.cpp
+    core/duplicates/DuplicateFinder.h
+    core/duplicates/DuplicateTask.cpp
+    core/duplicates/DuplicateTask.h
+    core/duplicates/DuplicateTypes.cpp
+    core/duplicates/DuplicateTypes.h
     core/execution/ConflictResolver.cpp
     core/execution/ConflictResolver.h
     core/execution/OrganizeExecutionTask.cpp

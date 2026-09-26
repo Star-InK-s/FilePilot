@@ -96,6 +96,26 @@ class HistoryPageTest : public QObject
 private slots:
     void listsHistoryAndShowsSelectedDetails();
 };
+class DuplicateFinderTest : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void groupsExactDuplicatesAndCalculatesWastedSize();
+    void rejectsDifferentContentAndPartialHashCollisions();
+    void filtersDifferentSizesAndHandlesSmallAndLargeFiles();
+    void reportsMissingChangedAndCancelledFiles();
+    void computesSummaryAndErrorSemantics();
+};
+
+class DuplicateTaskTest : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void runsInBackgroundWithProgress();
+    void cancellationStopsBeforeNewHashes();
+};
 class RuleEngineTest : public QObject
 {
     Q_OBJECT

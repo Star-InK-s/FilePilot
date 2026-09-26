@@ -5,6 +5,8 @@
 #include "app/MainWindow.h"
 #include "core/classify/RuleEngine.h"
 #include "core/database/ExecutionHistoryRepository.h"
+#include "core/duplicates/DuplicateFinder.h"
+#include "core/duplicates/DuplicateTask.h"
 #include "core/organize/OrganizePlan.h"
 #include "core/organize/OrganizePathValidator.h"
 #include "core/organize/OrganizePlanner.h"
@@ -997,6 +999,279 @@ void HistoryPageTest::listsHistoryAndShowsSelectedDetails()
         &page, "deleteSelectedExecution", Qt::DirectConnection));
     QCOMPARE(historyTable->model()->rowCount(), 0);
     QCOMPARE(detailTable->model()->rowCount(), 0);
+}
+namespace {
+
+FileInfo duplicateFileInfo(const QString &path)
+{
+    const QFileInfo info(path);
+    FileInfo file;
+    file.absolutePath = path;
+    file.fileName = info.fileName();
+    file.extension = info.suffix().toLower();
+    file.sizeBytes = info.size();
+    file.createdUtc = info.birthTime().toUTC();
+    file.modifiedUtc = info.lastModified().toUTC();
+    file.kind = FileKind::RegularFile;
+    return file;
+}
+
+ScanResult duplicateScanResult(const QStringList &paths)
+{
+    ScanResult scan;
+    scan.completed = true;
+    scan.rootPath = QStringLiteral("C:/duplicates");
+    for (const QString &path : paths) {
+        scan.files.push_back(duplicateFileInfo(path));
+    }
+    scan.statistics.fileCount = static_cast<qint64>(scan.files.size());
+    return scan;
+}
+
+bool containsDuplicateFileSize(const DuplicateResult &result, const qint64 size)
+{
+    return std::any_of(
+        result.groups.begin(),
+        result.groups.end(),
+        [size](const DuplicateGroup &group) {
+            return group.fileSize == size;
+        });
+}
+
+} // namespace
+
+void DuplicateFinderTest::groupsExactDuplicatesAndCalculatesWastedSize()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString root = directory.path();
+    const QStringList paths{
+        QDir(root).filePath(QStringLiteral("same-a.txt")),
+        QDir(root).filePath(QStringLiteral("same-b.txt")),
+        QDir(root).filePath(QStringLiteral("same-c.txt")),
+        QDir(root).filePath(QStringLiteral("empty-a.txt")),
+        QDir(root).filePath(QStringLiteral("empty-b.txt")),
+        QDir(root).filePath(QStringLiteral("other-a.bin")),
+        QDir(root).filePath(QStringLiteral("other-b.bin")),
+    };
+    QVERIFY(writeFile(paths.at(0), QByteArrayLiteral("same")));
+    QVERIFY(writeFile(paths.at(1), QByteArrayLiteral("same")));
+    QVERIFY(writeFile(paths.at(2), QByteArrayLiteral("same")));
+    QVERIFY(writeFile(paths.at(3), QByteArray()));
+    QVERIFY(writeFile(paths.at(4), QByteArray()));
+    QVERIFY(writeFile(paths.at(5), QByteArrayLiteral("other")));
+    QVERIFY(writeFile(paths.at(6), QByteArrayLiteral("other")));
+
+    const DuplicateResult result =
+        DuplicateFinder().findDuplicates(duplicateScanResult(paths), ScanCancellationToken{});
+    QCOMPARE(result.state, TaskState::Completed);
+    QCOMPARE(result.groups.size(), std::size_t{3});
+    QVERIFY(containsDuplicateFileSize(result, 4));
+    QVERIFY(containsDuplicateFileSize(result, 0));
+    QVERIFY(containsDuplicateFileSize(result, 5));
+    QCOMPARE(result.summary.groupCount, 3);
+    QCOMPARE(result.summary.duplicateFileCount, 7);
+    QCOMPARE(result.summary.duplicateBytes, 4 * 3 + 5 * 2);
+    QCOMPARE(result.summary.wastedBytes, 4 * 2 + 5 * 1);
+    QCOMPARE(result.summary.errorCount, 0);
+}
+
+void DuplicateFinderTest::rejectsDifferentContentAndPartialHashCollisions()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString root = directory.path();
+    const QString first = QDir(root).filePath(QStringLiteral("different-a.txt"));
+    const QString second = QDir(root).filePath(QStringLiteral("different-b.txt"));
+    QVERIFY(writeFile(first, QByteArrayLiteral("same-size-a")));
+    QVERIFY(writeFile(second, QByteArrayLiteral("same-size-b")));
+
+    const QString partialFirst =
+        QDir(root).filePath(QStringLiteral("partial-a.bin"));
+    const QString partialSecond =
+        QDir(root).filePath(QStringLiteral("partial-b.bin"));
+    QByteArray partialContent(256 * 1024, 'a');
+    QVERIFY(writeFile(partialFirst, partialContent));
+    partialContent[100 * 1024] = 'b';
+    QVERIFY(writeFile(partialSecond, partialContent));
+
+    const DuplicateResult result = DuplicateFinder().findDuplicates(
+        duplicateScanResult({first, second, partialFirst, partialSecond}),
+        ScanCancellationToken{});
+    QVERIFY(result.groups.empty());
+    QCOMPARE(result.summary.groupCount, 0);
+    QCOMPARE(result.summary.candidateFiles, 4);
+    QCOMPARE(result.summary.partialHashedFiles, 4);
+    QCOMPARE(result.summary.fullHashedFiles, 2);
+    QCOMPARE(result.summary.errorCount, 0);
+    for (const DuplicateItem &item : result.items) {
+        QVERIFY(item.status == DuplicateHashStatus::NotDuplicate);
+    }
+}
+
+void DuplicateFinderTest::filtersDifferentSizesAndHandlesSmallAndLargeFiles()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString root = directory.path();
+    const QString uniqueSmall = QDir(root).filePath(QStringLiteral("small.bin"));
+    const QString uniqueLarge = QDir(root).filePath(QStringLiteral("large.bin"));
+    QVERIFY(writeFile(uniqueSmall, QByteArrayLiteral("x")));
+    QVERIFY(writeFile(uniqueLarge, QByteArray(1024 * 1024, 'z')));
+
+    const QString smallA = QDir(root).filePath(QStringLiteral("small-a.txt"));
+    const QString smallB = QDir(root).filePath(QStringLiteral("small-b.txt"));
+    const QString largeA = QDir(root).filePath(QStringLiteral("large-a.bin"));
+    const QString largeB = QDir(root).filePath(QStringLiteral("large-b.bin"));
+    QVERIFY(writeFile(smallA, QByteArrayLiteral("small")));
+    QVERIFY(writeFile(smallB, QByteArrayLiteral("small")));
+    QVERIFY(writeFile(largeA, QByteArray(512 * 1024, 'q')));
+    QVERIFY(writeFile(largeB, QByteArray(512 * 1024, 'q')));
+
+    const DuplicateResult result = DuplicateFinder().findDuplicates(
+        duplicateScanResult({
+            uniqueSmall,
+            uniqueLarge,
+            smallA,
+            smallB,
+            largeA,
+            largeB,
+        }),
+        ScanCancellationToken{});
+    QCOMPARE(result.summary.totalFiles, 6);
+    QCOMPARE(result.summary.candidateFiles, 4);
+    QCOMPARE(result.summary.partialHashedFiles, 4);
+    QCOMPARE(result.summary.fullHashedFiles, 4);
+    QCOMPARE(result.summary.groupCount, 2);
+    QVERIFY(containsDuplicateFileSize(result, 5));
+    QVERIFY(containsDuplicateFileSize(result, 512 * 1024));
+    QCOMPARE(result.summary.wastedBytes, 5 + 512 * 1024);
+}
+
+void DuplicateFinderTest::reportsMissingChangedAndCancelledFiles()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString root = directory.path();
+    const QString validA = QDir(root).filePath(QStringLiteral("valid-a.txt"));
+    const QString validB = QDir(root).filePath(QStringLiteral("valid-b.txt"));
+    const QString missing = QDir(root).filePath(QStringLiteral("missing.txt"));
+    const QString replaced = QDir(root).filePath(QStringLiteral("replaced.txt"));
+    QVERIFY(writeFile(validA, QByteArrayLiteral("valid")));
+    QVERIFY(writeFile(validB, QByteArrayLiteral("valid")));
+    QVERIFY(writeFile(missing, QByteArrayLiteral("old")));
+    QVERIFY(writeFile(replaced, QByteArrayLiteral("old")));
+
+    const ScanResult scan =
+        duplicateScanResult({validA, validB, missing, replaced});
+    QVERIFY(QFile::remove(missing));
+    QVERIFY(writeFile(replaced, QByteArrayLiteral("new-content")));
+
+    ScanCancellationToken token;
+    int progressCount = 0;
+    const DuplicateResult result = DuplicateFinder().findDuplicates(
+        scan,
+        token,
+        [&token, &progressCount](const DuplicateProgress &) {
+            ++progressCount;
+            if (progressCount == 1) {
+                token.cancel();
+            }
+        });
+    QVERIFY(result.cancelled);
+    QCOMPARE(result.state, TaskState::Cancelled);
+    QVERIFY(result.groups.empty());
+    QCOMPARE(result.summary.errorCount, 0);
+
+    const DuplicateResult withoutCancellation =
+        DuplicateFinder().findDuplicates(scan, ScanCancellationToken{});
+    QCOMPARE(withoutCancellation.groups.size(), std::size_t{1});
+    QCOMPARE(withoutCancellation.summary.errorCount, 2);
+    QCOMPARE(withoutCancellation.summary.duplicateFileCount, 2);
+    bool sawFailed = false;
+    bool sawChanged = false;
+    for (const DuplicateItem &item : withoutCancellation.items) {
+        sawFailed = sawFailed || item.status == DuplicateHashStatus::Failed;
+        sawChanged = sawChanged || item.status == DuplicateHashStatus::Changed;
+    }
+    QVERIFY(sawFailed);
+    QVERIFY(sawChanged);
+}
+void DuplicateFinderTest::computesSummaryAndErrorSemantics()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString root = directory.path();
+    const QString missingA = QDir(root).filePath(QStringLiteral("missing-a.txt"));
+    const QString missingB = QDir(root).filePath(QStringLiteral("missing-b.txt"));
+    const ScanResult scan = duplicateScanResult({missingA, missingB});
+
+    std::vector<DuplicateError> callbackErrors;
+    const DuplicateResult result = DuplicateFinder().findDuplicates(
+        scan,
+        ScanCancellationToken{},
+        {},
+        [&callbackErrors](const DuplicateError &error) {
+            callbackErrors.push_back(error);
+        });
+
+    QVERIFY(result.completed);
+    QCOMPARE(result.state, TaskState::CompletedWithErrors);
+    QCOMPARE(result.summary.candidateFiles, 2);
+    QCOMPARE(result.summary.processedFiles, 2);
+    QCOMPARE(result.summary.errorCount, 2);
+    QCOMPARE(result.errors.size(), std::size_t{2});
+    QCOMPARE(callbackErrors.size(), std::size_t{2});
+    QVERIFY(result.groups.empty());
+}
+
+void DuplicateTaskTest::runsInBackgroundWithProgress()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString root = directory.path();
+    const QString first = QDir(root).filePath(QStringLiteral("task-a.txt"));
+    const QString second = QDir(root).filePath(QStringLiteral("task-b.txt"));
+    QVERIFY(writeFile(first, QByteArrayLiteral("task-duplicate")));
+    QVERIFY(writeFile(second, QByteArrayLiteral("task-duplicate")));
+
+    DuplicateTask task;
+    QSignalSpy completedSpy(&task, &DuplicateTask::completed);
+    QSignalSpy progressSpy(&task, &DuplicateTask::progressChanged);
+    QVERIFY(task.start(duplicateScanResult({first, second})));
+    QTRY_COMPARE(completedSpy.count(), 1);
+    QCOMPARE(task.state(), TaskState::Completed);
+    QVERIFY(!progressSpy.isEmpty());
+    const DuplicateResult result =
+        completedSpy.at(0).at(0).value<DuplicateResult>();
+    QCOMPARE(result.groups.size(), std::size_t{1});
+    QCOMPARE(result.summary.duplicateFileCount, 2);
+}
+
+void DuplicateTaskTest::cancellationStopsBeforeNewHashes()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString root = directory.path();
+    const QString first = QDir(root).filePath(QStringLiteral("cancel-a.bin"));
+    const QString second = QDir(root).filePath(QStringLiteral("cancel-b.bin"));
+    const QByteArray content(1024 * 1024, 'c');
+    QVERIFY(writeFile(first, content));
+    QVERIFY(writeFile(second, content));
+
+    DuplicateTask task;
+    QSignalSpy completedSpy(&task, &DuplicateTask::completed);
+    QSignalSpy cancelledSpy(&task, &DuplicateTask::cancelled);
+    connect(
+        &task,
+        &DuplicateTask::progressChanged,
+        &task,
+        [&task](const DuplicateProgress &) { task.cancel(); },
+        Qt::DirectConnection);
+    QVERIFY(task.start(duplicateScanResult({first, second})));
+    QTRY_VERIFY(isTerminalTaskState(task.state()));
+    QTRY_VERIFY(completedSpy.count() == 1 || cancelledSpy.count() == 1);
+    QCOMPARE(task.state(), TaskState::Cancelled);
 }
 void RuleEngineTest::usesDefaultCategories()
 {
@@ -2373,6 +2648,10 @@ int main(int argc, char *argv[])
         "OrganizePlannerTest", argc, argv);
     status |= runTestClass<FilePilot::Test::OrganizePreviewModelTest>(
         "OrganizePreviewModelTest", argc, argv);
+    status |= runTestClass<FilePilot::Test::DuplicateFinderTest>(
+        "DuplicateFinderTest", argc, argv);
+    status |= runTestClass<FilePilot::Test::DuplicateTaskTest>(
+        "DuplicateTaskTest", argc, argv);
     status |= runTestClass<FilePilot::Test::ExecutionHistoryRepositoryTest>(
         "ExecutionHistoryRepositoryTest", argc, argv);
     status |= runTestClass<FilePilot::Test::HistoryPageTest>(
