@@ -4,6 +4,7 @@
 #include "app/Application.h"
 #include "app/MainWindow.h"
 #include "core/classify/RuleEngine.h"
+#include "core/database/ExecutionHistoryRepository.h"
 #include "core/organize/OrganizePlan.h"
 #include "core/organize/OrganizePathValidator.h"
 #include "core/organize/OrganizePlanner.h"
@@ -17,6 +18,7 @@
 #include "ui/models/FileTableModel.h"
 #include "ui/models/OrganizePreviewModel.h"
 #include "ui/pages/FileOrganizePage.h"
+#include "ui/pages/Pages.h"
 #include "core/settings/SettingsService.h"
 
 #include <QCoreApplication>
@@ -32,6 +34,7 @@
 #include <QPushButton>
 #include <QSignalSpy>
 #include <QLabel>
+#include <QItemSelectionModel>
 #include <QLineEdit>
 #include <QStackedWidget>
 #include <QTableView>
@@ -40,6 +43,7 @@
 #include <QTimer>
 #include <QTextStream>
 #include <QToolBar>
+#include <QUuid>
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -631,6 +635,368 @@ void ExecutionResultModelTest::formatsCompleteSummaryWithoutMergingCategories()
     QVERIFY(text.contains(QStringLiteral("失败：1")));
     QVERIFY(text.contains(QStringLiteral("清理失败：1")));
     QVERIFY(text.contains(QStringLiteral("取消：0")));
+}
+namespace {
+
+ExecutionItemResult historyItem(
+    const QString &source,
+    const QString &destination,
+    const ExecutionItemStatus status,
+    const QString &message = {},
+    const bool resumed = false)
+{
+    OrganizePlanItem item;
+    item.sourcePath = source;
+    item.destinationPath = destination;
+    return ExecutionItemResult{
+        item,
+        destination,
+        status,
+        message,
+        QDateTime::currentDateTimeUtc(),
+        resumed,
+    };
+}
+
+ExecutionHistoryRepository makeHistoryRepository(
+    const QString &path,
+    const QString &label)
+{
+    return ExecutionHistoryRepository(
+        path,
+        QStringLiteral("FilePilotTestHistory_%1_%2")
+            .arg(label)
+            .arg(QUuid::createUuid().toString(QUuid::WithoutBraces)));
+}
+
+} // namespace
+
+void ExecutionHistoryRepositoryTest::initializesSchemaAndSavesCompleteResult()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString databasePath =
+        QDir(directory.path()).filePath(QStringLiteral("history.sqlite"));
+    ExecutionHistoryRepository repository(databasePath);
+    QString error;
+    QVERIFY2(repository.initialize(&error), qPrintable(error));
+
+    const ExecutionContext context{
+        QStringLiteral("context-1"),
+        QStringLiteral("D:/target"),
+        QStringLiteral("C:/scan"),
+        11,
+        17,
+    };
+    ExecutionResult result;
+    result.completed = true;
+    result.summary.planned = 3;
+    result.summary.succeeded = 1;
+    result.summary.rejected = 1;
+    result.summary.sourceCleanupFailed = 1;
+    result.items = {
+        historyItem(
+            QStringLiteral("C:/scan/first.txt"),
+            QStringLiteral("D:/target/first.txt"),
+            ExecutionItemStatus::Succeeded),
+        historyItem(
+            QStringLiteral("C:/scan/second.txt"),
+            QStringLiteral("D:/target/second.txt"),
+            ExecutionItemStatus::Rejected,
+            QStringLiteral("目标路径无效")),
+        historyItem(
+            QStringLiteral("C:/scan/third.txt"),
+            QStringLiteral("D:/target/third.txt"),
+            ExecutionItemStatus::SourceCleanupFailed,
+            QStringLiteral("源文件清理失败")),
+    };
+
+    qint64 historyId = 0;
+    QVERIFY2(
+        repository.saveExecutionResult(
+            context, TaskState::CompletedWithErrors, result, &historyId, &error),
+        qPrintable(error));
+    QVERIFY(historyId > 0);
+
+    const std::optional<ExecutionHistoryDetail> detail =
+        repository.getExecution(historyId, &error);
+    QVERIFY2(detail.has_value(), qPrintable(error));
+    QCOMPARE(detail->record.executionId.size(), 36);
+    QCOMPARE(detail->record.sourceRoot, context.scanSourceRoot);
+    QCOMPARE(detail->record.targetRoot, context.targetRoot);
+    QCOMPARE(detail->record.finalState, QStringLiteral("Completed with errors"));
+    QCOMPARE(detail->record.summary.planned, 3);
+    QCOMPARE(detail->record.summary.succeeded, 1);
+    QCOMPARE(detail->record.summary.rejected, 1);
+    QCOMPARE(detail->record.summary.failed, 0);
+    QCOMPARE(detail->record.summary.sourceCleanupFailed, 1);
+    QCOMPARE(detail->result.items.size(), std::size_t{3});
+    QCOMPARE(detail->result.items.at(0).status, ExecutionItemStatus::Succeeded);
+    QCOMPARE(detail->result.items.at(1).status, ExecutionItemStatus::Rejected);
+    QCOMPARE(detail->result.items.at(2).status, ExecutionItemStatus::SourceCleanupFailed);
+    QCOMPARE(detail->result.items.at(2).errorMessage, QStringLiteral("源文件清理失败"));
+}
+
+void ExecutionHistoryRepositoryTest::reopensAndDeletesHistoryWithItems()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString databasePath =
+        QDir(directory.path()).filePath(QStringLiteral("history.sqlite"));
+    const ExecutionContext context{
+        QStringLiteral("context-2"),
+        QStringLiteral("D:/target"),
+        QStringLiteral("C:/scan"),
+        1,
+        1,
+    };
+    ExecutionResult result;
+    result.completed = true;
+    result.summary.planned = 1;
+    result.summary.succeeded = 1;
+    result.items = {
+        historyItem(
+            QStringLiteral("C:/scan/file.txt"),
+            QStringLiteral("D:/target/file.txt"),
+            ExecutionItemStatus::Succeeded),
+    };
+
+    qint64 historyId = 0;
+    {
+        ExecutionHistoryRepository repository =
+            makeHistoryRepository(databasePath, QStringLiteral("save"));
+        QString error;
+        QVERIFY2(repository.initialize(&error), qPrintable(error));
+        QVERIFY2(
+            repository.saveExecutionResult(
+                context, TaskState::Completed, result, &historyId, &error),
+            qPrintable(error));
+    }
+
+    {
+        ExecutionHistoryRepository repository =
+            makeHistoryRepository(databasePath, QStringLiteral("reopen"));
+        QString error;
+        QVERIFY2(repository.initialize(&error), qPrintable(error));
+        const auto records = repository.listExecutions(&error);
+        QVERIFY2(error.isEmpty(), qPrintable(error));
+        QCOMPARE(records.size(), std::size_t{1});
+        QVERIFY(repository.getExecution(historyId, &error).has_value());
+        QVERIFY2(repository.deleteExecution(historyId, &error), qPrintable(error));
+    }
+
+    {
+        ExecutionHistoryRepository repository =
+            makeHistoryRepository(databasePath, QStringLiteral("empty"));
+        QString error;
+        QVERIFY2(repository.initialize(&error), qPrintable(error));
+        QCOMPARE(repository.listExecutions(&error).size(), std::size_t{0});
+        QVERIFY(!repository.getExecution(historyId, &error).has_value());
+    }
+}
+
+void ExecutionHistoryRepositoryTest::persistsFinalStatesAndCleanupSemantics()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    ExecutionHistoryRepository repository =
+        makeHistoryRepository(
+            QDir(directory.path()).filePath(QStringLiteral("history.sqlite")),
+            QStringLiteral("states"));
+    QString error;
+    QVERIFY2(repository.initialize(&error), qPrintable(error));
+
+    const ExecutionContext context{
+        QStringLiteral("context-states"),
+        QStringLiteral("D:/target"),
+        QStringLiteral("C:/scan"),
+        1,
+        1,
+    };
+
+    ExecutionResult completed;
+    completed.completed = true;
+    completed.summary.planned = 1;
+    completed.summary.succeeded = 1;
+    completed.items = {
+        historyItem(
+            QStringLiteral("C:/scan/completed.txt"),
+            QStringLiteral("D:/target/completed.txt"),
+            ExecutionItemStatus::Succeeded),
+    };
+    QVERIFY(repository.saveExecutionResult(
+        context, TaskState::Completed, completed, nullptr, &error));
+
+    ExecutionResult partial;
+    partial.completed = true;
+    partial.summary.planned = 2;
+    partial.summary.succeeded = 1;
+    partial.summary.rejected = 1;
+    partial.items = {
+        historyItem(
+            QStringLiteral("C:/scan/ok.txt"),
+            QStringLiteral("D:/target/ok.txt"),
+            ExecutionItemStatus::Succeeded),
+        historyItem(
+            QStringLiteral("C:/scan/rejected.txt"),
+            QStringLiteral("D:/target/rejected.txt"),
+            ExecutionItemStatus::Rejected,
+            QStringLiteral("拒绝")),
+    };
+    QVERIFY(repository.saveExecutionResult(
+        context, TaskState::CompletedWithErrors, partial, nullptr, &error));
+
+    ExecutionResult cancelled;
+    cancelled.completed = true;
+    cancelled.cancelled = true;
+    cancelled.summary.planned = 1;
+    cancelled.summary.cancelled = 1;
+    cancelled.items = {
+        historyItem(
+            QStringLiteral("C:/scan/cancelled.txt"),
+            QStringLiteral("D:/target/cancelled.txt"),
+            ExecutionItemStatus::Cancelled,
+            QStringLiteral("执行已取消")),
+    };
+    QVERIFY(repository.saveExecutionResult(
+        context, TaskState::Cancelled, cancelled, nullptr, &error));
+
+    ExecutionResult failed;
+    failed.summary.planned = 1;
+    failed.fatalError = QStringLiteral("任务异常");
+    QVERIFY(repository.saveExecutionResult(
+        context, TaskState::Failed, failed, nullptr, &error));
+
+    ExecutionResult cleanup;
+    cleanup.completed = true;
+    cleanup.summary.planned = 1;
+    cleanup.summary.sourceCleanupFailed = 1;
+    cleanup.items = {
+        historyItem(
+            QStringLiteral("C:/scan/cleanup.txt"),
+            QStringLiteral("D:/target/cleanup.txt"),
+            ExecutionItemStatus::SourceCleanupFailed,
+            QStringLiteral("源文件清理失败")),
+    };
+    QVERIFY(repository.saveExecutionResult(
+        context, TaskState::CompletedWithErrors, cleanup, nullptr, &error));
+
+    const auto records = repository.listExecutions(&error);
+    QCOMPARE(records.size(), std::size_t{5});
+    QSet<QString> states;
+    for (const ExecutionHistoryRecord &record : records) {
+        states.insert(record.finalState);
+        if (record.summary.sourceCleanupFailed == 1) {
+            QCOMPARE(record.summary.failed, 0);
+            QCOMPARE(record.summary.sourceCleanupFailed, 1);
+        }
+    }
+    QVERIFY(states.contains(QStringLiteral("Completed")));
+    QVERIFY(states.contains(QStringLiteral("Completed with errors")));
+    QVERIFY(states.contains(QStringLiteral("Cancelled")));
+    QVERIFY(states.contains(QStringLiteral("Failed")));
+}
+
+void ExecutionHistoryRepositoryTest::databaseFailureDoesNotModifyExecutionResult()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString databasePath =
+        QDir(directory.path()).filePath(QStringLiteral("missing/history.sqlite"));
+    ExecutionHistoryRepository repository(databasePath);
+    QString error;
+    QVERIFY(!repository.initialize(&error));
+    QVERIFY(!error.isEmpty());
+
+    ExecutionResult result;
+    result.completed = true;
+    result.summary.planned = 1;
+    result.summary.succeeded = 1;
+    result.items = {
+        historyItem(
+            QStringLiteral("C:/scan/file.txt"),
+            QStringLiteral("D:/target/file.txt"),
+            ExecutionItemStatus::Succeeded),
+    };
+    const ExecutionResult before = result;
+    const ExecutionContext context{
+        QStringLiteral("context-db-failure"),
+        QStringLiteral("D:/target"),
+        QStringLiteral("C:/scan"),
+        1,
+        1,
+    };
+    QVERIFY(!repository.saveExecutionResult(
+        context, TaskState::Completed, result, nullptr, &error));
+    QCOMPARE(result.summary.planned, before.summary.planned);
+    QCOMPARE(result.summary.succeeded, before.summary.succeeded);
+    QCOMPARE(result.items.size(), before.items.size());
+    QCOMPARE(result.items.at(0).status, before.items.at(0).status);
+}
+
+void HistoryPageTest::listsHistoryAndShowsSelectedDetails()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    ExecutionHistoryRepository repository =
+        makeHistoryRepository(
+            QDir(directory.path()).filePath(QStringLiteral("history.sqlite")),
+            QStringLiteral("page"));
+    QString error;
+    QVERIFY2(repository.initialize(&error), qPrintable(error));
+
+    ExecutionResult result;
+    result.completed = true;
+    result.summary.planned = 2;
+    result.summary.succeeded = 1;
+    result.summary.rejected = 1;
+    result.items = {
+        historyItem(
+            QStringLiteral("C:/scan/ok.txt"),
+            QStringLiteral("D:/target/ok.txt"),
+            ExecutionItemStatus::Succeeded),
+        historyItem(
+            QStringLiteral("C:/scan/rejected.txt"),
+            QStringLiteral("D:/target/rejected.txt"),
+            ExecutionItemStatus::Rejected,
+            QStringLiteral("目标路径无效")),
+    };
+    const ExecutionContext context{
+        QStringLiteral("context-page"),
+        QStringLiteral("D:/target"),
+        QStringLiteral("C:/scan"),
+        1,
+        1,
+    };
+    QVERIFY(repository.saveExecutionResult(
+        context, TaskState::CompletedWithErrors, result, nullptr, &error));
+
+    HistoryPage page(repository);
+    auto *historyTable =
+        page.findChild<QTableView *>(QStringLiteral("historyTableView"));
+    auto *detailTable =
+        page.findChild<QTableView *>(QStringLiteral("historyDetailTableView"));
+    auto *deleteButton =
+        page.findChild<QPushButton *>(QStringLiteral("deleteHistoryButton"));
+    auto *statusLabel =
+        page.findChild<QLabel *>(QStringLiteral("historyStatusLabel"));
+    QVERIFY(historyTable != nullptr);
+    QVERIFY(detailTable != nullptr);
+    QVERIFY(deleteButton != nullptr);
+    QVERIFY(statusLabel != nullptr);
+    QCOMPARE(historyTable->model()->rowCount(), 1);
+    QVERIFY(statusLabel->text().contains(QStringLiteral("共 1 条")));
+
+    historyTable->selectionModel()->select(
+        historyTable->model()->index(0, 0),
+        QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+    QTRY_COMPARE(detailTable->model()->rowCount(), 2);
+    QVERIFY(deleteButton->isEnabled());
+
+    QVERIFY(QMetaObject::invokeMethod(
+        &page, "deleteSelectedExecution", Qt::DirectConnection));
+    QCOMPARE(historyTable->model()->rowCount(), 0);
+    QCOMPARE(detailTable->model()->rowCount(), 0);
 }
 void RuleEngineTest::usesDefaultCategories()
 {
@@ -1757,6 +2123,8 @@ void FileOrganizePageTest::generatesPreviewAndConfirmsWithoutFilesystemChanges()
     QVERIFY(!QFileInfo(QDir(targetRoot).filePath(QStringLiteral("Images/second.png"))).exists());
 
     QVERIFY(QDir().mkpath(targetRoot));
+    const auto historyBefore =
+        testApplication().historyRepository().listExecutions();
     QVERIFY(QMetaObject::invokeMethod(&page, "startExecution"));
     QTRY_VERIFY(previewStatusLabel->text().contains(QStringLiteral("整理执行完成"))
         || previewStatusLabel->text().contains(QStringLiteral("整理执行失败"))
@@ -1771,6 +2139,15 @@ QVERIFY(!QFile::exists(firstPath));
     QVERIFY(executionSummaryLabel->text().contains(QStringLiteral("失败：0")));
     QCOMPARE(executionProgressBar->maximum(), 2);
     QCOMPARE(executionProgressBar->value(), 2);
+    const auto historyAfter =
+        testApplication().historyRepository().listExecutions();
+    QCOMPARE(historyAfter.size(), historyBefore.size() + 1);
+    QVERIFY(std::any_of(
+        historyAfter.begin(),
+        historyAfter.end(),
+        [&root](const ExecutionHistoryRecord &record) {
+            return record.sourceRoot == root;
+        }));
 
     QVERIFY(QMetaObject::invokeMethod(&page, "cancelPlan"));
     QTRY_COMPARE(previewTableView->model()->rowCount(), 0);
@@ -1996,6 +2373,10 @@ int main(int argc, char *argv[])
         "OrganizePlannerTest", argc, argv);
     status |= runTestClass<FilePilot::Test::OrganizePreviewModelTest>(
         "OrganizePreviewModelTest", argc, argv);
+    status |= runTestClass<FilePilot::Test::ExecutionHistoryRepositoryTest>(
+        "ExecutionHistoryRepositoryTest", argc, argv);
+    status |= runTestClass<FilePilot::Test::HistoryPageTest>(
+        "HistoryPageTest", argc, argv);
     status |= runTestClass<FilePilot::Test::ExecutionResultModelTest>(
         "ExecutionResultModelTest", argc, argv);
     status |= runTestClass<FilePilot::Test::RuleEngineTest>(

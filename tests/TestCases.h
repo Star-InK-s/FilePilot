@@ -78,6 +78,24 @@ private slots:
     void exposesRowsAndReadableStatuses();
     void formatsCompleteSummaryWithoutMergingCategories();
 };
+class ExecutionHistoryRepositoryTest : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void initializesSchemaAndSavesCompleteResult();
+    void reopensAndDeletesHistoryWithItems();
+    void persistsFinalStatesAndCleanupSemantics();
+    void databaseFailureDoesNotModifyExecutionResult();
+};
+
+class HistoryPageTest : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void listsHistoryAndShowsSelectedDetails();
+};
 class RuleEngineTest : public QObject
 {
     Q_OBJECT

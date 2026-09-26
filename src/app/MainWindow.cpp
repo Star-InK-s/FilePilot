@@ -186,7 +186,8 @@ QStackedWidget *MainWindow::buildPages()
     pageStack->addWidget(organizePage_);
     pageStack->addWidget(new DuplicateFilesPage(pageStack));
     pageStack->addWidget(new BackupPage(pageStack));
-    pageStack->addWidget(new HistoryPage(pageStack));
+    pageStack->addWidget(
+        new HistoryPage(application_.historyRepository(), pageStack));
     pageStack->addWidget(new SettingsPage(pageStack));
 
     return pageStack;

@@ -79,6 +79,7 @@ enum class ExecutionItemStatus {
 };
 
 QString executionItemStatusName(ExecutionItemStatus status);
+ExecutionItemStatus executionItemStatusFromName(const QString &status);
 
 struct PublishedMoveRecoveryState {
     QString executionId;

@@ -54,4 +54,23 @@ QString executionItemStatusName(const ExecutionItemStatus status)
     return QStringLiteral("Failed");
 }
 
+ExecutionItemStatus executionItemStatusFromName(const QString &status)
+{
+    if (status == QStringLiteral("Succeeded")) {
+        return ExecutionItemStatus::Succeeded;
+    }
+    if (status == QStringLiteral("Skipped")) {
+        return ExecutionItemStatus::Skipped;
+    }
+    if (status == QStringLiteral("Rejected")) {
+        return ExecutionItemStatus::Rejected;
+    }
+    if (status == QStringLiteral("Cancelled")) {
+        return ExecutionItemStatus::Cancelled;
+    }
+    if (status == QStringLiteral("SourceCleanupFailed")) {
+        return ExecutionItemStatus::SourceCleanupFailed;
+    }
+    return ExecutionItemStatus::Failed;
+}
 } // namespace FilePilot

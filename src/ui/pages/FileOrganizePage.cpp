@@ -710,14 +710,14 @@ void FileOrganizePage::startExecution()
         ExecutionResultModel::summaryText(initialSummary));
     updateControls(scanTask_.state());
 
-    const ExecutionContext executionContext{
+    executionContext_ = ExecutionContext{
         targetRootEdit_->text().trimmed(),
         currentScanSourceRoot_,
         planGeneration_,
         scanGeneration_,
     };
     if (!executionTask_.start(
-            currentPlan_, executionContext, ConflictPolicy::AutoRename)) {
+            currentPlan_, executionContext_, ConflictPolicy::AutoRename)) {
         planLocked_ = false;
         executionState_ = TaskState::Failed;
         previewStatusLabel_->setText(QStringLiteral("整理执行任务当前不可用"));
@@ -848,6 +848,16 @@ void FileOrganizePage::handleExecutionResult(const ExecutionResult result)
     } else {
         previewStatusLabel_->setText(QStringLiteral("整理执行完成"));
     }
+    QString historyError;
+    if (!application_.historyRepository().saveExecutionResult(
+            executionContext_, executionState_, result, nullptr, &historyError)) {
+        previewStatusLabel_->setText(
+            previewStatusLabel_->text() + QStringLiteral("，但历史记录保存失败"));
+        application_.logger().log(
+            LogLevel::Warning,
+            QStringLiteral("HistoryRepository"),
+            QStringLiteral("Execution history save failed: %1").arg(historyError));
+    }
     updateControls(scanTask_.state());
 }
 
@@ -857,10 +867,26 @@ void FileOrganizePage::handleExecutionFailure(const QString message)
     planConfirmed_ = false;
     executionState_ = TaskState::Failed;
     executionResultModel_->clear();
+    ExecutionResult failedResult;
+    failedResult.summary.planned = currentPlan_.plannedCount();
+    failedResult.fatalError = message;
+    QString historyError;
+    if (!application_.historyRepository().saveExecutionResult(
+            executionContext_, executionState_, failedResult, nullptr, &historyError)) {
+        application_.logger().log(
+            LogLevel::Warning,
+            QStringLiteral("HistoryRepository"),
+            QStringLiteral("Failed execution history save failed: %1")
+                .arg(historyError));
+    }
     executionProgressBar_->setRange(0, 100);
     executionProgressBar_->setValue(0);
     executionSummaryLabel_->setText(QStringLiteral("执行未产生完整结果"));
-    previewStatusLabel_->setText(QStringLiteral("整理执行失败：%1").arg(message));
+    previewStatusLabel_->setText(
+        historyError.isEmpty()
+            ? QStringLiteral("整理执行失败：%1").arg(message)
+            : QStringLiteral("整理执行失败：%1，但历史记录保存失败")
+                  .arg(message));
     updateControls(scanTask_.state());
 }
 

@@ -120,6 +120,7 @@ private:
     quint64 planGeneration_ = 0;
     quint64 scanGeneration_ = 0;
     QString currentScanSourceRoot_;
+    ExecutionContext executionContext_;
     qint64 errorCount_ = 0;
     QString currentRoot_;
 };

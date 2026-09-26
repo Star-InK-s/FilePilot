@@ -3,6 +3,9 @@ add_library(filepilot_core STATIC
     core/classify/ClassificationRule.h
     core/classify/RuleEngine.cpp
     core/classify/RuleEngine.h
+    core/database/ExecutionHistoryRepository.cpp
+    core/database/ExecutionHistoryRepository.h
+    core/database/HistoryTypes.h
     core/filesystem/FileIdentity.cpp
     core/filesystem/FileIdentity.h
     core/logging/LogManager.cpp
@@ -47,6 +50,7 @@ target_include_directories(filepilot_core
 target_link_libraries(filepilot_core
     PUBLIC
         Qt6::Core
+    Qt6::Sql
 )
 
 filepilot_enable_warnings(filepilot_core)
@@ -56,6 +60,8 @@ add_library(filepilot_gui STATIC
     app/Application.h
     app/MainWindow.cpp
     app/MainWindow.h
+    ui/models/ExecutionHistoryModel.cpp
+    ui/models/ExecutionHistoryModel.h
     ui/models/ExecutionResultModel.cpp
     ui/models/ExecutionResultModel.h
     ui/models/FileTableModel.cpp

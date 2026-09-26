@@ -44,6 +44,7 @@ Application::Application(int &argc, char **argv, const QString &dataDirectory)
     , settings_(QDir(dataDirectory_).filePath(QStringLiteral("settings.ini")))
     , logger_(QDir(dataDirectory_).filePath(QStringLiteral("logs/filepilot.log")),
               resolveLogLevel(settings_.logLevelValue()))
+    , historyRepository_(QDir(dataDirectory_).filePath(QStringLiteral("history.sqlite")))
 {
     setApplicationName(QStringLiteral("FilePilot"));
     setApplicationDisplayName(QStringLiteral("FilePilot"));
@@ -53,6 +54,14 @@ Application::Application(int &argc, char **argv, const QString &dataDirectory)
     logger_.log(LogLevel::Info,
                 QStringLiteral("Application"),
                 QStringLiteral("Application initialized"));
+
+    QString historyError;
+    if (!historyRepository_.initialize(&historyError)) {
+        logger_.log(LogLevel::Error,
+                    QStringLiteral("HistoryRepository"),
+                    QStringLiteral("History database initialization failed: %1")
+                        .arg(historyError));
+    }
 }
 
 Application::~Application()
@@ -81,6 +90,16 @@ LogManager &Application::logger()
 const LogManager &Application::logger() const
 {
     return logger_;
+}
+
+ExecutionHistoryRepository &Application::historyRepository()
+{
+    return historyRepository_;
+}
+
+const ExecutionHistoryRepository &Application::historyRepository() const
+{
+    return historyRepository_;
 }
 
 QString Application::dataDirectory() const
