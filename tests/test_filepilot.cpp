@@ -3,6 +3,11 @@
 
 #include "app/Application.h"
 #include "app/MainWindow.h"
+#include "platform/windows/WindowsThemeDetector.h"
+#include "ui/presenters/DuplicateTheme.h"
+#include "ui/theme/QtThemeApplier.h"
+#include "ui/theme/ThemePalette.h"
+#include "ui/theme/ThemeSnapshot.h"
 #include "core/classify/RuleEngine.h"
 #include "core/database/ExecutionHistoryRepository.h"
 #include "core/duplicates/DuplicateFinder.h"
@@ -19,13 +24,16 @@
 #include "ui/models/ExecutionResultModel.h"
 #include "ui/models/FileTableModel.h"
 #include "ui/models/OrganizePreviewModel.h"
+#include "ui/pages/DuplicateFilesPage.h"
 #include "ui/pages/FileOrganizePage.h"
 #include "ui/pages/Pages.h"
 #include "core/settings/SettingsService.h"
 
 #include <QCoreApplication>
+#include <QtMath>
 
 
+#include <algorithm>
 #include <QDir>
 #include <QDir>
 #include <QFileInfo>
@@ -33,6 +41,7 @@
 #include <QListWidget>
 #include <QProcess>
 #include <QProgressBar>
+#include <QRegularExpression>
 #include <QPushButton>
 #include <QSignalSpy>
 #include <QLabel>
@@ -45,6 +54,8 @@
 #include <QTimer>
 #include <QTextStream>
 #include <QToolBar>
+#include <QThread>
+#include <QWidget>
 #include <QUuid>
 
 #ifdef Q_OS_WIN
@@ -59,6 +70,130 @@ namespace {
 Application &testApplication()
 {
     return *static_cast<Application *>(QCoreApplication::instance());
+}
+
+qreal srgbLuminance(const QColor &color)
+{
+    const auto linear = [](const qreal value) {
+        return value <= 0.04045
+            ? value / 12.92
+            : qPow((value + 0.055) / 1.055, 2.4);
+    };
+    return 0.2126 * linear(color.redF())
+        + 0.7152 * linear(color.greenF())
+        + 0.0722 * linear(color.blueF());
+}
+
+qreal contrastRatio(const QColor &first, const QColor &second)
+{
+    const qreal firstLuminance = srgbLuminance(first);
+    const qreal secondLuminance = srgbLuminance(second);
+    const qreal lighter = std::max(firstLuminance, secondLuminance);
+    const qreal darker = std::min(firstLuminance, secondLuminance);
+    return (lighter + 0.05) / (darker + 0.05);
+}
+
+int colorDistance(const QColor &first, const QColor &second)
+{
+    return qAbs(first.red() - second.red())
+        + qAbs(first.green() - second.green())
+        + qAbs(first.blue() - second.blue());
+}
+
+QString qssRuleBody(const QString &styleSheet, const QString &selector)
+{
+    const qsizetype selectorIndex = styleSheet.indexOf(selector);
+    if (selectorIndex < 0) {
+        return {};
+    }
+
+    const qsizetype openIndex = styleSheet.indexOf(QLatin1Char('{'), selectorIndex);
+    const qsizetype closeIndex = styleSheet.indexOf(QLatin1Char('}'), openIndex + 1);
+    if (openIndex < 0 || closeIndex < 0) {
+        return {};
+    }
+
+    return styleSheet.mid(openIndex + 1, closeIndex - openIndex - 1);
+}
+
+QString qssDeclarationValue(const QString &body, const QString &property)
+{
+    const QStringList declarations = body.split(QLatin1Char(';'));
+    for (const QString &declaration : declarations) {
+        const QString trimmed = declaration.trimmed();
+        const qsizetype separator = trimmed.indexOf(QLatin1Char(':'));
+        if (separator < 0) {
+            continue;
+        }
+        if (trimmed.left(separator).trimmed() == property) {
+            return trimmed.mid(separator + 1).trimmed();
+        }
+    }
+    return {};
+}
+
+ThemeSnapshot highContrastSelectionSnapshot()
+{
+    ThemeSnapshot snapshot;
+    snapshot.mode = ThemeMode::Light;
+    snapshot.highContrast = true;
+    snapshot.valid = true;
+    snapshot.background = QColor(QStringLiteral("#000000"));
+    snapshot.foreground = QColor(QStringLiteral("#FFFFFF"));
+    snapshot.highlight = QColor(QStringLiteral("#0000FF"));
+    snapshot.highlightText = QColor(QStringLiteral("#FFFF00"));
+    snapshot.buttonFace = QColor(QStringLiteral("#202020"));
+    snapshot.buttonText = QColor(QStringLiteral("#FFFFFF"));
+    snapshot.hotLight = QColor(QStringLiteral("#00FF00"));
+    snapshot.windowFrame = QColor(QStringLiteral("#FFFFFF"));
+    snapshot.grayText = QColor(QStringLiteral("#A0A0A0"));
+    return snapshot;
+}
+
+ThemeSnapshot themeSnapshot(const ThemeMode mode,
+                            const QColor &accent,
+                            const bool highContrast = false)
+{
+    ThemeSnapshot snapshot;
+    snapshot.mode = mode;
+    snapshot.highContrast = highContrast;
+    snapshot.accent = accent;
+    snapshot.valid = true;
+
+    if (mode == ThemeMode::Dark) {
+        snapshot.background = QColor(QStringLiteral("#202020"));
+        snapshot.foreground = QColor(QStringLiteral("#F5F5F5"));
+    } else {
+        snapshot.background = QColor(QStringLiteral("#F3F3F3"));
+        snapshot.foreground = QColor(QStringLiteral("#1A1A1A"));
+    }
+
+    snapshot.highlight = QColor(QStringLiteral("#0078D4"));
+    snapshot.highlightText = QColor(QStringLiteral("#FFFFFF"));
+    snapshot.buttonFace = QColor(QStringLiteral("#F0F0F0"));
+    snapshot.buttonText = QColor(QStringLiteral("#1A1A1A"));
+    snapshot.hotLight = QColor(QStringLiteral("#0067C0"));
+    snapshot.windowFrame = QColor(QStringLiteral("#707070"));
+    snapshot.grayText = QColor(QStringLiteral("#767676"));
+    return snapshot;
+}
+
+bool visibleChildrenFit(const QWidget &widget)
+{
+    const QRect bounds = widget.rect();
+    const auto children = widget.findChildren<QWidget *>();
+    for (const QWidget *child : children) {
+        if (!child->isVisible()) {
+            continue;
+        }
+
+        const QPoint topLeft = child->mapTo(&widget, QPoint(0, 0));
+        const QRect geometry(topLeft, child->size());
+        if (!bounds.contains(geometry)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 } // namespace
@@ -2604,6 +2739,461 @@ void MainWindowTest::switchesPagesThroughNavigation()
     }
 }
 
+void ThemePaletteTest::derivesLightAndDarkPalettes()
+{
+    const ThemePalette light = ThemePalette::fromSnapshot(
+        themeSnapshot(ThemeMode::Light, QColor(QStringLiteral("#0078D4"))));
+    const ThemePalette dark = ThemePalette::fromSnapshot(
+        themeSnapshot(ThemeMode::Dark, QColor(QStringLiteral("#0078D4"))));
+
+    QVERIFY(light.isValid());
+    QVERIFY(dark.isValid());
+    QVERIFY(light != dark);
+    QCOMPARE(light.background(), QColor(QStringLiteral("#F3F3F3")));
+    QCOMPARE(dark.background(), QColor(QStringLiteral("#202020")));
+    QVERIFY(contrastRatio(light.textPrimary(), light.background()) >= 4.5);
+    QVERIFY(contrastRatio(dark.textPrimary(), dark.background()) >= 4.5);
+}
+
+void ThemePaletteTest::derivesDefaultAndCustomAccents()
+{
+    const QList<QColor> accents{
+        QColor(QStringLiteral("#0078D4")),
+        QColor(QStringLiteral("#32CD32")),
+        QColor(QStringLiteral("#7A3E9D")),
+        QColor(QStringLiteral("#C42B1C")),
+    };
+
+    for (const QColor &accent : accents) {
+        const ThemePalette palette = ThemePalette::fromSnapshot(
+            themeSnapshot(ThemeMode::Light, accent));
+        QCOMPARE(palette.accent(), accent);
+        QVERIFY(palette.accentHover() != palette.accent());
+        QVERIFY(palette.accentPressed() != palette.accent());
+        QVERIFY(palette.accentSubtle() != palette.accent());
+        QVERIFY(palette.selection() != palette.accent());
+        QVERIFY(contrastRatio(palette.accentText(), palette.accent()) >= 4.5);
+    }
+}
+
+void ThemePaletteTest::maintainsReadableAccentStatePairs()
+{
+    const QList<QColor> accents{
+        QColor(QStringLiteral("#0078D4")),
+        QColor(QStringLiteral("#008000")),
+        QColor(QStringLiteral("#800080")),
+        QColor(QStringLiteral("#FF0000")),
+        QColor(QStringLiteral("#010101")),
+        QColor(QStringLiteral("#FEFEFE")),
+    };
+
+    for (const ThemeMode mode : {ThemeMode::Light, ThemeMode::Dark}) {
+        for (const QColor &accent : accents) {
+            const ThemePalette palette = ThemePalette::fromSnapshot(
+                themeSnapshot(mode, accent));
+
+            QVERIFY(contrastRatio(palette.accentText(), palette.accent()) >= 4.5);
+            QVERIFY(contrastRatio(
+                palette.accentHoverText(),
+                palette.accentHover()) >= 4.5);
+            QVERIFY(contrastRatio(
+                palette.accentPressedText(),
+                palette.accentPressed()) >= 4.5);
+            QVERIFY(contrastRatio(palette.selectionText(), palette.selection()) >= 4.5);
+
+            QVERIFY(colorDistance(palette.accent(), palette.accentHover()) >= 12);
+            QVERIFY(colorDistance(palette.accentHover(), palette.accentPressed()) >= 12);
+            QVERIFY(palette.accent() != palette.accentPressed());
+        }
+    }
+}
+
+void ThemePaletteTest::usesHighContrastSystemSemantics()
+{
+    ThemeSnapshot snapshot = themeSnapshot(
+        ThemeMode::Dark,
+        QColor(QStringLiteral("#32CD32")),
+        true);
+    snapshot.background = QColor(QStringLiteral("#000000"));
+    snapshot.foreground = QColor(QStringLiteral("#FFFFFF"));
+    snapshot.highlight = QColor(QStringLiteral("#00A3FF"));
+    snapshot.highlightText = QColor(QStringLiteral("#000000"));
+    snapshot.buttonFace = QColor(QStringLiteral("#2D2D2D"));
+    snapshot.buttonText = QColor(QStringLiteral("#FFFFFF"));
+    snapshot.hotLight = QColor(QStringLiteral("#FFFF00"));
+    snapshot.windowFrame = QColor(QStringLiteral("#FFFFFF"));
+    snapshot.grayText = QColor(QStringLiteral("#A0A0A0"));
+
+    const ThemePalette palette = ThemePalette::fromSnapshot(snapshot);
+    QVERIFY(palette.highContrast());
+    QCOMPARE(palette.background(), snapshot.background);
+    QCOMPARE(palette.textPrimary(), snapshot.foreground);
+    QCOMPARE(palette.surfaceSecondary(), snapshot.buttonFace);
+    QCOMPARE(palette.textSecondary(), snapshot.buttonText);
+    QCOMPARE(palette.selection(), snapshot.highlight);
+    QCOMPARE(palette.selectionText(), snapshot.highlightText);
+    QCOMPARE(palette.focus(), snapshot.hotLight);
+    QCOMPARE(palette.border(), snapshot.windowFrame);
+    QCOMPARE(palette.accent(), snapshot.highlight);
+    QCOMPARE(palette.error(), snapshot.foreground);
+}
+
+void ThemePaletteTest::fallsBackWhenSnapshotIsInvalid()
+{
+    const ThemePalette light = ThemePalette::fromSnapshot(ThemeSnapshot{});
+    ThemeSnapshot darkSnapshot;
+    darkSnapshot.mode = ThemeMode::Dark;
+    const ThemePalette dark = ThemePalette::fromSnapshot(darkSnapshot);
+
+    QVERIFY(light.isValid());
+    QVERIFY(dark.isValid());
+    QCOMPARE(light.accent(), QColor(QStringLiteral("#0067C0")));
+    QCOMPARE(light.background(), QColor(QStringLiteral("#F3F3F3")));
+    QCOMPARE(dark.background(), QColor(QStringLiteral("#202020")));
+}
+
+void ThemePaletteTest::maintainsContrastRatios()
+{
+    const QList<QColor> accents{
+        QColor(QStringLiteral("#0078D4")),
+        QColor(QStringLiteral("#32CD32")),
+        QColor(QStringLiteral("#7A3E9D")),
+        QColor(QStringLiteral("#C42B1C")),
+    };
+
+    for (const ThemeMode mode : {ThemeMode::Light, ThemeMode::Dark}) {
+        for (const QColor &accent : accents) {
+            const ThemePalette palette =
+                ThemePalette::fromSnapshot(themeSnapshot(mode, accent));
+            QVERIFY(contrastRatio(palette.textPrimary(), palette.background()) >= 4.5);
+            QVERIFY(contrastRatio(palette.accentText(), palette.accent()) >= 4.5);
+            QVERIFY(contrastRatio(palette.selectionText(), palette.selection()) >= 4.5);
+            QVERIFY(contrastRatio(palette.error(), palette.surface()) >= 4.5);
+        }
+    }
+}
+
+void ThemePaletteTest::usesAccessibleTooltipQss()
+{
+    const QList<QPair<ThemeMode, QColor>> cases{
+        {ThemeMode::Light, QColor(QStringLiteral("#0078D4"))},
+        {ThemeMode::Dark, QColor(QStringLiteral("#800080"))},
+    };
+
+    for (const auto &entry : cases) {
+        const ThemePalette palette = ThemePalette::fromSnapshot(
+            themeSnapshot(entry.first, entry.second));
+        const QString styleSheet = fluentStyleSheet(palette);
+        const QString body = qssRuleBody(styleSheet, QStringLiteral("QToolTip"));
+
+        const QColor background(qssDeclarationValue(body, QStringLiteral("background")));
+        const QColor foreground(qssDeclarationValue(body, QStringLiteral("color")));
+
+        QCOMPARE(background, palette.surface());
+        QCOMPARE(foreground, palette.textPrimary());
+        QVERIFY(contrastRatio(foreground, background) >= 4.5);
+    }
+}
+
+void ThemePaletteTest::usesValidFocusQss()
+{
+    ThemeSnapshot highContrast = highContrastSelectionSnapshot();
+    highContrast.hotLight = QColor(QStringLiteral("#FFFF00"));
+
+    const QList<ThemePalette> palettes{
+        ThemePalette::fromSnapshot(
+            themeSnapshot(ThemeMode::Light, QColor(QStringLiteral("#0078D4")))),
+        ThemePalette::fromSnapshot(
+            themeSnapshot(ThemeMode::Dark, QColor(QStringLiteral("#800080")))),
+        ThemePalette::fromSnapshot(highContrast),
+    };
+
+    const QList<QPair<QString, QString>> focusRules{
+        {QStringLiteral("QListWidget#navigation::item:focus"), QStringLiteral("outline")},
+        {QStringLiteral("QLineEdit:focus"), QStringLiteral("border")},
+        {QStringLiteral("QPushButton:focus"), QStringLiteral("border")},
+    };
+
+    for (const ThemePalette &palette : palettes) {
+        const QString styleSheet = fluentStyleSheet(palette);
+        QVERIFY(!styleSheet.contains(
+            QRegularExpression(QStringLiteral("#[0-9A-Fa-f]{6}px"))));
+        QVERIFY(!styleSheet.contains(QStringLiteral("pxpx")));
+        QVERIFY(!styleSheet.contains(QRegularExpression(QStringLiteral("%\\d+"))));
+
+        for (const auto &rule : focusRules) {
+            const QString body = qssRuleBody(styleSheet, rule.first + QStringLiteral(" {"));
+            const QString value = qssDeclarationValue(body, rule.second);
+            const QString expected = QStringLiteral("2px solid ") + palette.focus().name();
+
+            QCOMPARE(value, expected);
+            QCOMPARE(QColor(value.section(QLatin1Char(' '), 2, 2)), palette.focus());
+        }
+    }
+}
+
+void ThemePaletteTest::usesSelectionTextForSelectedStates()
+{
+    const ThemeSnapshot snapshot = highContrastSelectionSnapshot();
+    const ThemePalette palette = ThemePalette::fromSnapshot(snapshot);
+    const QString styleSheet = fluentStyleSheet(palette);
+
+    QVERIFY(snapshot.highlight != snapshot.foreground);
+    QVERIFY(snapshot.highlightText != snapshot.foreground);
+
+    const QString navigation = qssRuleBody(
+        styleSheet,
+        QStringLiteral("QListWidget#navigation::item:selected {"));
+    const QString table = qssRuleBody(styleSheet, QStringLiteral("QTableView {"));
+    const QString tableItem = qssRuleBody(
+        styleSheet,
+        QStringLiteral("QTableView::item:selected {"));
+    const QString lineEdit = qssRuleBody(styleSheet, QStringLiteral("QLineEdit {"));
+
+    QCOMPARE(
+        qssDeclarationValue(navigation, QStringLiteral("color")),
+        palette.selectionText().name());
+    QCOMPARE(
+        qssDeclarationValue(table, QStringLiteral("selection-color")),
+        palette.selectionText().name());
+    QCOMPARE(
+        qssDeclarationValue(tableItem, QStringLiteral("color")),
+        palette.selectionText().name());
+    QCOMPARE(
+        qssDeclarationValue(lineEdit, QStringLiteral("selection-background-color")),
+        palette.selection().name());
+    QCOMPARE(
+        qssDeclarationValue(lineEdit, QStringLiteral("selection-color")),
+        palette.selectionText().name());
+
+    QVERIFY(palette.selectionText().name() != palette.textPrimary().name());
+}
+
+void ThemeDetectorTest::readsCurrentSnapshot()
+{
+    WindowsThemeDetector detector;
+    const ThemeSnapshot snapshot = detector.snapshot();
+    QVERIFY(snapshot.mode != ThemeMode::Unknown
+            || snapshot.highContrast
+            || snapshot.accent.isValid());
+    QVERIFY(snapshot.baseThemeName.isEmpty());
+    QVERIFY(snapshot.currentThemeType.isEmpty());
+}
+
+void ThemeDetectorTest::emitsOnlyChangedSnapshots()
+{
+    ThemeSnapshot current = themeSnapshot(
+        ThemeMode::Light,
+        QColor(QStringLiteral("#0078D4")));
+    WindowsThemeDetector detector([&current] { return current; });
+    QSignalSpy changedSpy(&detector, &WindowsThemeDetector::themeChanged);
+
+    detector.start();
+    QCOMPARE(changedSpy.count(), 1);
+    detector.refreshNow();
+    QCOMPARE(changedSpy.count(), 1);
+
+    current.accent = QColor(QStringLiteral("#32CD32"));
+    detector.refreshNow();
+    QCOMPARE(changedSpy.count(), 2);
+}
+
+void ThemeDetectorTest::usesModeFallbackPriority()
+{
+    QCOMPARE(
+        WindowsThemeDetector::resolveMode(true, false, ThemeMode::Dark),
+        ThemeMode::Light);
+    QCOMPARE(
+        WindowsThemeDetector::resolveMode(false, true, ThemeMode::Light),
+        ThemeMode::Dark);
+    QCOMPARE(
+        WindowsThemeDetector::resolveMode(std::nullopt, true, ThemeMode::Dark),
+        ThemeMode::Light);
+    QCOMPARE(
+        WindowsThemeDetector::resolveMode(std::nullopt, false, ThemeMode::Light),
+        ThemeMode::Dark);
+    QCOMPARE(
+        WindowsThemeDetector::resolveMode(
+            std::nullopt,
+            std::nullopt,
+            ThemeMode::Dark),
+        ThemeMode::Dark);
+    QCOMPARE(
+        WindowsThemeDetector::resolveMode(
+            std::nullopt,
+            std::nullopt,
+            ThemeMode::Unknown),
+        ThemeMode::Unknown);
+}
+
+void ThemeDetectorTest::switchesLightDarkAccentAndHighContrast()
+{
+    qRegisterMetaType<ThemeSnapshot>();
+    ThemeSnapshot current = themeSnapshot(
+        ThemeMode::Light,
+        QColor(QStringLiteral("#0078D4")));
+    WindowsThemeDetector detector([&current] { return current; });
+    QSignalSpy changedSpy(&detector, &WindowsThemeDetector::themeChanged);
+
+    detector.start();
+    current = themeSnapshot(
+        ThemeMode::Dark,
+        QColor(QStringLiteral("#7A3E9D")));
+    detector.refreshNow();
+    current = themeSnapshot(
+        ThemeMode::Light,
+        QColor(QStringLiteral("#32CD32")));
+    detector.refreshNow();
+    current = themeSnapshot(
+        ThemeMode::Light,
+        QColor(QStringLiteral("#C42B1C")),
+        true);
+    detector.refreshNow();
+    current = themeSnapshot(
+        ThemeMode::Light,
+        QColor(QStringLiteral("#32CD32")));
+    detector.refreshNow();
+
+    QCOMPARE(changedSpy.count(), 5);
+    const auto dark = qvariant_cast<ThemeSnapshot>(changedSpy.at(1).at(0));
+    const auto light = qvariant_cast<ThemeSnapshot>(changedSpy.at(2).at(0));
+    const auto highContrast = qvariant_cast<ThemeSnapshot>(changedSpy.at(3).at(0));
+    const auto highContrastOff = qvariant_cast<ThemeSnapshot>(changedSpy.at(4).at(0));
+    QCOMPARE(dark.mode, ThemeMode::Dark);
+    QCOMPARE(dark.accent, QColor(QStringLiteral("#7A3E9D")));
+    QCOMPARE(light.mode, ThemeMode::Light);
+    QCOMPARE(light.accent, QColor(QStringLiteral("#32CD32")));
+    QVERIFY(!light.highContrast);
+    QVERIFY(highContrast.highContrast);
+    QCOMPARE(highContrast.accent, QColor(QStringLiteral("#C42B1C")));
+    QVERIFY(!highContrastOff.highContrast);
+}
+
+void ThemeDetectorTest::usesFallbackForInvalidState()
+{
+    const ThemeSnapshot invalid;
+    WindowsThemeDetector detector([&invalid] { return invalid; });
+    QCOMPARE(detector.snapshot(), invalid);
+
+    const ThemePalette palette = ThemePalette::fromSnapshot(invalid);
+    QVERIFY(palette.isValid());
+    QCOMPARE(palette.accent(), QColor(QStringLiteral("#0067C0")));
+    QCOMPARE(palette.background(), QColor(QStringLiteral("#F3F3F3")));
+}
+
+void ThemeDetectorTest::remainsOnGuiThread()
+{
+    WindowsThemeDetector detector([] {
+        return themeSnapshot(
+            ThemeMode::Light,
+            QColor(QStringLiteral("#0078D4")));
+    });
+    detector.start();
+    detector.refreshNow();
+    QCOMPARE(detector.thread(), QThread::currentThread());
+    QCOMPARE(detector.thread(), QCoreApplication::instance()->thread());
+}
+
+void MainWindowThemeSmokeTest::appliesThemeToMainWindow()
+{
+    MainWindow window(testApplication());
+    QVERIFY(!window.styleSheet().isEmpty());
+    QVERIFY(window.palette().color(QPalette::Window).isValid());
+    QVERIFY(window.palette().color(QPalette::Text).isValid());
+    QVERIFY(window.findChild<QWidget *>(QStringLiteral("pageDuplicates")) != nullptr);
+}
+
+void MainWindowThemeSmokeTest::refreshesWithoutRecursivePaletteLoop()
+{
+    QWidget target;
+    QtThemeApplier applier(&target);
+    ThemeSnapshot current = themeSnapshot(
+        ThemeMode::Light,
+        QColor(QStringLiteral("#0078D4")));
+    WindowsThemeDetector detector([&current] { return current; });
+    QSignalSpy changedSpy(&detector, &WindowsThemeDetector::themeChanged);
+
+    connect(
+        &detector,
+        &WindowsThemeDetector::themeChanged,
+        &target,
+        [&applier](const ThemeSnapshot &snapshot) {
+            applier.apply(ThemePalette::fromSnapshot(snapshot));
+        });
+
+    detector.start();
+    QCOMPARE(changedSpy.count(), 1);
+    QVERIFY(!applier.isApplying());
+
+    for (int index = 0; index < 5; ++index) {
+        QEvent event(QEvent::ApplicationPaletteChange);
+        QCoreApplication::sendEvent(QCoreApplication::instance(), &event);
+    }
+    QTest::qWait(100);
+    QCOMPARE(changedSpy.count(), 1);
+    QVERIFY(!applier.isApplying());
+
+    current.mode = ThemeMode::Dark;
+    detector.refreshNow();
+    QCOMPARE(changedSpy.count(), 2);
+    QVERIFY(!applier.isApplying());
+}
+
+void DpiLayoutTest::keepsShellWithinViewport()
+{
+    const qreal expectedScale = qEnvironmentVariableIsSet("QT_SCALE_FACTOR")
+        ? QString::fromLocal8Bit(qgetenv("QT_SCALE_FACTOR")).toDouble()
+        : 1.0;
+
+    MainWindow window(testApplication());
+    window.show();
+    for (const QSize &size : {
+             QSize(960, 640),
+             QSize(1200, 800),
+             QSize(1440, 900),
+             QSize(1920, 1200),
+         }) {
+        window.resize(size);
+        QCoreApplication::processEvents();
+        QVERIFY(visibleChildrenFit(window));
+    }
+
+    QVERIFY(qAbs(window.devicePixelRatioF() - expectedScale) < 0.01);
+    window.hide();
+}
+
+void DpiLayoutTest::keepsDuplicatePageWithinViewport()
+{
+    DuplicateFilesPage page;
+    page.show();
+    for (const QSize &size : {
+             QSize(960, 640),
+             QSize(1200, 800),
+             QSize(1440, 900),
+             QSize(1920, 1200),
+         }) {
+        page.resize(size);
+        QCoreApplication::processEvents();
+        QVERIFY(visibleChildrenFit(page));
+    }
+    page.hide();
+}
+
+void DpiLayoutTest::generatesLogicalSizedIcons()
+{
+    MainWindow window(testApplication());
+    const QIcon icon = windowsGlyphIcon(&window, 0xE8DA, 18);
+    if (icon.isNull()) {
+        QSKIP("Segoe Fluent Icons is not available in the test environment.");
+    }
+
+    const QPixmap pixmap = icon.pixmap(QSize(18, 18));
+    QVERIFY(!pixmap.isNull());
+    QVERIFY(pixmap.width() >= 18);
+    QVERIFY(pixmap.height() >= 18);
+}
+
+
 } // namespace Test
 } // namespace FilePilot
 
@@ -2676,6 +3266,14 @@ int main(int argc, char *argv[])
         "LogManagerTest", argc, argv);
     status |= runTestClass<FilePilot::Test::MainWindowTest>(
         "MainWindowTest", argc, argv);
+    status |= runTestClass<FilePilot::Test::ThemePaletteTest>(
+        "ThemePaletteTest", argc, argv);
+    status |= runTestClass<FilePilot::Test::ThemeDetectorTest>(
+        "ThemeDetectorTest", argc, argv);
+    status |= runTestClass<FilePilot::Test::MainWindowThemeSmokeTest>(
+        "MainWindowThemeSmokeTest", argc, argv);
+    status |= runTestClass<FilePilot::Test::DpiLayoutTest>(
+        "DpiLayoutTest", argc, argv);
 
     return status;
 }

@@ -5,6 +5,8 @@
 #include "ui/pages/FileOrganizePage.h"
 #include "ui/pages/Pages.h"
 #include "ui/presenters/DuplicateTheme.h"
+#include "ui/theme/QtThemeApplier.h"
+#include "platform/windows/WindowsThemeDetector.h"
 
 #include <QAction>
 #include <QCloseEvent>
@@ -127,7 +129,13 @@ void MainWindow::buildUi()
             this,
             &MainWindow::updateTaskErrorCount);
 
-    applyWindowsTheme(this);
+    themeApplier_ = new QtThemeApplier(this);
+    themeDetector_ = new WindowsThemeDetector(this);
+    connect(themeDetector_,
+            &WindowsThemeDetector::themeChanged,
+            this,
+            &MainWindow::applyTheme);
+    themeDetector_->start();
     refreshFluentIcons();
     updateTaskState(TaskState::Idle);
     navigation_->setCurrentRow(0);
@@ -248,6 +256,20 @@ QWidget *MainWindow::buildProgressPanel()
 
     panel->hide();
     return panel;
+}
+
+void MainWindow::applyTheme(const ThemeSnapshot &snapshot)
+{
+    if (applyingTheme_ || themeApplier_ == nullptr) {
+        return;
+    }
+
+    applyingTheme_ = true;
+    const ThemePalette palette = ThemePalette::fromSnapshot(snapshot);
+    if (themeApplier_->apply(palette)) {
+        refreshFluentIcons();
+    }
+    applyingTheme_ = false;
 }
 
 void MainWindow::updatePageCommands(const int index)

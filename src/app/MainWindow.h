@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/model/TaskState.h"
+#include "ui/theme/ThemeSnapshot.h"
 
 #include <QMainWindow>
 
@@ -19,6 +20,8 @@ namespace FilePilot {
 class Application;
 class DuplicateFilesPage;
 class FileOrganizePage;
+class QtThemeApplier;
+class WindowsThemeDetector;
 
 class MainWindow : public QMainWindow
 {
@@ -36,6 +39,7 @@ private:
     QStackedWidget *buildPages();
     QWidget *buildProgressPanel();
     void restoreWindowState();
+    void applyTheme(const ThemeSnapshot &snapshot);
     void updatePageCommands(int index);
     void refreshFluentIcons();
     void updateTaskState(TaskState state);
@@ -45,6 +49,9 @@ private:
     void updateTaskErrorCount(qint64 errorCount);
 
     Application &application_;
+    WindowsThemeDetector *themeDetector_ = nullptr;
+    QtThemeApplier *themeApplier_ = nullptr;
+    bool applyingTheme_ = false;
     QListWidget *navigation_ = nullptr;
     QStackedWidget *pageStack_ = nullptr;
     FileOrganizePage *organizePage_ = nullptr;

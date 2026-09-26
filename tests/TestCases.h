@@ -199,5 +199,53 @@ private slots:
     void switchesPagesThroughNavigation();
 };
 
+class ThemePaletteTest : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void derivesLightAndDarkPalettes();
+    void derivesDefaultAndCustomAccents();
+    void maintainsReadableAccentStatePairs();
+    void usesHighContrastSystemSemantics();
+    void fallsBackWhenSnapshotIsInvalid();
+    void maintainsContrastRatios();
+    void usesAccessibleTooltipQss();
+    void usesValidFocusQss();
+    void usesSelectionTextForSelectedStates();
+};
+
+class ThemeDetectorTest : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void readsCurrentSnapshot();
+    void emitsOnlyChangedSnapshots();
+    void usesModeFallbackPriority();
+    void switchesLightDarkAccentAndHighContrast();
+    void usesFallbackForInvalidState();
+    void remainsOnGuiThread();
+};
+
+class MainWindowThemeSmokeTest : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void appliesThemeToMainWindow();
+    void refreshesWithoutRecursivePaletteLoop();
+};
+
+class DpiLayoutTest : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void keepsShellWithinViewport();
+    void keepsDuplicatePageWithinViewport();
+    void generatesLogicalSizedIcons();
+};
+
 } // namespace Test
 } // namespace FilePilot

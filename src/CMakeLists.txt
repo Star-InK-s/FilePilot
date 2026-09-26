@@ -84,6 +84,13 @@ add_library(filepilot_gui STATIC
     ui/pages/Pages.h
     ui/presenters/DuplicateTheme.cpp
     ui/presenters/DuplicateTheme.h
+    ui/theme/ThemeSnapshot.h
+    ui/theme/ThemePalette.cpp
+    ui/theme/ThemePalette.h
+    ui/theme/QtThemeApplier.cpp
+    ui/theme/QtThemeApplier.h
+    platform/windows/WindowsThemeDetector.cpp
+    platform/windows/WindowsThemeDetector.h
 )
 
 target_include_directories(filepilot_gui
