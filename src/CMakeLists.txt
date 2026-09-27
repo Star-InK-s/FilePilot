@@ -8,10 +8,20 @@ add_library(filepilot_core STATIC
     core/database/HistoryTypes.h
     core/filesystem/FileIdentity.cpp
     core/filesystem/FileIdentity.h
+    core/filesystem/FileHasher.cpp
+    core/filesystem/FileHasher.h
+    core/filesystem/FileSnapshot.cpp
+    core/filesystem/FileSnapshot.h
+    core/backup/BackupInventoryBuilder.cpp
+    core/backup/BackupInventoryBuilder.h
+    core/backup/BackupPlanTypes.h
+    core/backup/BackupPrevalidator.cpp
+    core/backup/BackupPrevalidator.h
     core/logging/LogManager.cpp
     core/logging/LogManager.h
     core/model/AppError.cpp
     core/model/AppError.h
+    core/model/ConflictPolicy.h
     core/model/FileInfo.h
     core/model/TaskState.cpp
     core/model/TaskState.h

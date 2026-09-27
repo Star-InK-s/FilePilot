@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/filesystem/FileIdentity.h"
+#include "core/model/ConflictPolicy.h"
 #include "core/organize/OrganizePlanItem.h"
 
 #include <QDateTime>
@@ -10,12 +11,6 @@
 #include <vector>
 
 namespace FilePilot {
-
-enum class ConflictPolicy {
-    Skip,
-    Overwrite,
-    AutoRename
-};
 
 enum class ConflictDecisionAction {
     Proceed,

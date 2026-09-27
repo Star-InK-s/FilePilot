@@ -1,9 +1,9 @@
 #include "core/execution/FileOperator.h"
 
 #include "core/filesystem/FileIdentity.h"
+#include "core/filesystem/FileSnapshot.h"
 #include "core/organize/OrganizePathValidator.h"
 
-#include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -25,13 +25,6 @@ namespace FilePilot {
 namespace {
 
 namespace fs = std::filesystem;
-
-struct FileSnapshot {
-    FileIdentity identity;
-    qint64 size = -1;
-    qint64 modifiedMSecs = 0;
-    QByteArray digest;
-};
 
 struct PathChainSnapshot {
     std::vector<std::pair<QString, FilesystemPathInfo>> components;
@@ -104,65 +97,26 @@ bool verifyPathChain(
     return true;
 }
 
-std::optional<QByteArray> fileDigest(const QString &path)
-{
-    QFile file(path);
-    if (!file.open(QIODevice::ReadOnly)) {
-        return std::nullopt;
-    }
-
-    QCryptographicHash hash(QCryptographicHash::Sha256);
-    constexpr int bufferSize = 1024 * 1024;
-    QByteArray buffer(bufferSize, Qt::Uninitialized);
-    while (!file.atEnd()) {
-        const qint64 bytesRead = file.read(buffer.data(), buffer.size());
-        if (bytesRead < 0) {
-            return std::nullopt;
-        }
-        hash.addData(QByteArrayView(buffer.constData(), bytesRead));
-    }
-    return hash.result();
-}
-
-bool inspectFile(
-    const QString &path,
-    FilesystemPathInfo &info,
-    QString &error)
-{
-    if (!inspectPath(path, info, error)) {
-        return false;
-    }
-    return info.isRegularFile() && info.identity.valid;
-}
-
 bool captureFileSnapshot(
     const QString &path,
     const FileIdentity &expectedIdentity,
     FileSnapshot &snapshot,
     QString &error)
 {
-    FilesystemPathInfo info;
-    if (!inspectFile(path, info, error)) {
-        if (error.isEmpty()) {
-            error = QStringLiteral("文件不存在、不是普通文件或身份不可验证");
-        }
+    AppError snapshotError;
+    if (!FilePilot::captureFileSnapshot(path, snapshot, snapshotError)) {
+        error = snapshotError.message();
         return false;
     }
-    if (expectedIdentity.valid && info.identity != expectedIdentity) {
+    if (snapshot.kind != FilesystemPathKind::RegularFile
+        || !snapshot.identity.valid) {
+        error = QStringLiteral("文件不存在、不是普通文件或身份不可验证");
+        return false;
+    }
+    if (expectedIdentity.valid && snapshot.identity != expectedIdentity) {
         error = QStringLiteral("文件身份与预期状态不一致");
         return false;
     }
-
-    const std::optional<QByteArray> digest = fileDigest(path);
-    if (!digest) {
-        error = QStringLiteral("无法读取文件内容生成验证快照");
-        return false;
-    }
-
-    snapshot.identity = info.identity;
-    snapshot.size = info.size;
-    snapshot.modifiedMSecs = info.modifiedMSecs;
-    snapshot.digest = *digest;
     return true;
 }
 
@@ -176,7 +130,7 @@ bool verifyFileSnapshot(
         return false;
     }
     if (current.size != snapshot.size
-        || current.digest != snapshot.digest) {
+        || current.sha256 != snapshot.sha256) {
         error = QStringLiteral("文件内容在验证后发生变化");
         return false;
     }
@@ -193,7 +147,7 @@ bool verifyTemporaryMatchesSnapshot(
         return false;
     }
     if (temporary.size != snapshot.size
-        || temporary.digest != snapshot.digest) {
+        || temporary.sha256 != snapshot.sha256) {
         error = QStringLiteral("临时文件内容与已验证源状态不一致");
         return false;
     }
@@ -500,8 +454,8 @@ std::optional<PublishedMoveRecoveryState> capturePublishedRecoveryState(
     state.destinationIdentity = destinationSnapshot.identity;
     state.sourceSize = sourceSnapshot.size;
     state.destinationSize = destinationSnapshot.size;
-    state.sourceDigest = sourceSnapshot.digest;
-    state.destinationDigest = destinationSnapshot.digest;
+    state.sourceDigest = sourceSnapshot.sha256;
+    state.destinationDigest = destinationSnapshot.sha256;
     return state;
 }
 
@@ -539,7 +493,7 @@ FileMoveResult FileOperator::resumePublishedCleanup(
             destinationSnapshot,
             error)
         || destinationSnapshot.size != recoveryState.destinationSize
-        || destinationSnapshot.digest != recoveryState.destinationDigest) {
+        || destinationSnapshot.sha256 != recoveryState.destinationDigest) {
         result.status = ExecutionItemStatus::Rejected;
         result.errorMessage = error.isEmpty()
             ? QStringLiteral("已发布目标文件状态已发生变化")
@@ -566,7 +520,7 @@ FileMoveResult FileOperator::resumePublishedCleanup(
         return result;
     }
     if (sourceSnapshot.size != recoveryState.sourceSize
-        || sourceSnapshot.digest != recoveryState.sourceDigest) {
+        || sourceSnapshot.sha256 != recoveryState.sourceDigest) {
         result.status = ExecutionItemStatus::Rejected;
         result.errorMessage = QStringLiteral("源文件与已发布结果不再匹配");
         return result;
@@ -721,7 +675,7 @@ FileMoveResult FileOperator::move(
                 publishedSnapshot,
                 error)
             || publishedSnapshot.size != sourceSnapshot.size
-            || publishedSnapshot.digest != sourceSnapshot.digest) {
+            || publishedSnapshot.sha256 != sourceSnapshot.sha256) {
             result.status = ExecutionItemStatus::SourceCleanupFailed;
             result.errorMessage = QStringLiteral("目标文件已发布，但最终状态确认失败");
             result.publishedState = capturePublishedRecoveryState(
@@ -823,7 +777,7 @@ FileMoveResult FileOperator::move(
             publishedSnapshot,
             error)
         || publishedSnapshot.size != verifiedSource.size
-        || publishedSnapshot.digest != verifiedSource.digest) {
+        || publishedSnapshot.sha256 != verifiedSource.sha256) {
         result.status = ExecutionItemStatus::SourceCleanupFailed;
         result.errorMessage = QStringLiteral("目标文件已发布，但最终状态确认失败，源清理未执行");
         result.publishedState = capturePublishedRecoveryState(

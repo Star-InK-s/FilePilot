@@ -40,3 +40,30 @@ foreach(entry IN LISTS FILEPILOT_DPI_SCALES)
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_SCALE_FACTOR=${scale_factor};FILEPILOT_TEST_CLASS=DpiLayoutTest"
     )
 endforeach()
+
+add_executable(filepilot_backup_phase1_tests
+    BackupPhase1Tests.cpp
+    BackupPhase1Tests.h
+)
+target_link_libraries(filepilot_backup_phase1_tests
+    PRIVATE
+        filepilot_core
+        Qt6::Test
+)
+filepilot_enable_warnings(filepilot_backup_phase1_tests)
+
+foreach(backup_test_class
+        FileSnapshotContractTest
+        FileHasherContractTest
+        BackupPlanContractTest
+        BackupInventoryBuilderContractTest
+        BackupPrevalidatorContractTest)
+    string(TOLOWER "${backup_test_class}" backup_test_name)
+    add_test(
+        NAME "filepilot_backup_phase1_${backup_test_name}"
+        COMMAND filepilot_backup_phase1_tests
+    )
+    set_tests_properties("filepilot_backup_phase1_${backup_test_name}" PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;FILEPILOT_BACKUP_TEST_CLASS=${backup_test_class}"
+    )
+endforeach()
