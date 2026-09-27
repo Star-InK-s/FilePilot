@@ -14,6 +14,9 @@ add_library(filepilot_core STATIC
     core/filesystem/FileSnapshot.h
     core/backup/BackupInventoryBuilder.cpp
     core/backup/BackupInventoryBuilder.h
+    core/backup/BackupExecutor.cpp
+    core/backup/BackupExecutor.h
+    core/backup/BackupExecutionTypes.h
     core/backup/BackupPlanTypes.h
     core/backup/BackupPrevalidator.cpp
     core/backup/BackupPrevalidator.h

@@ -67,3 +67,22 @@ foreach(backup_test_class
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;FILEPILOT_BACKUP_TEST_CLASS=${backup_test_class}"
     )
 endforeach()
+
+add_executable(filepilot_backup_executor_phase1_tests
+    BackupExecutorPhase1Tests.cpp
+    BackupExecutorPhase1Tests.h
+)
+target_link_libraries(filepilot_backup_executor_phase1_tests
+    PRIVATE
+        filepilot_core
+        Qt6::Test
+)
+filepilot_enable_warnings(filepilot_backup_executor_phase1_tests)
+
+add_test(
+    NAME filepilot_backup_executor_phase1_contract
+    COMMAND filepilot_backup_executor_phase1_tests
+)
+set_tests_properties(filepilot_backup_executor_phase1_contract PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;FILEPILOT_BACKUP_EXECUTOR_TEST_CLASS=BackupExecutorContractTest"
+)
