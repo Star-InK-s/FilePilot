@@ -37,12 +37,6 @@ PlaceholderPage::PlaceholderPage(const QString &title, QWidget *parent)
     layout->addWidget(emptyLabel, 1);
 }
 
-BackupPage::BackupPage(QWidget *parent)
-    : PlaceholderPage(QStringLiteral("备份"), parent)
-{
-    setObjectName(QStringLiteral("pageBackup"));
-}
-
 HistoryPage::HistoryPage(
     ExecutionHistoryRepository &repository,
     QWidget *parent)

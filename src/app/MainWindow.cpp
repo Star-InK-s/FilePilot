@@ -1,6 +1,7 @@
 #include "app/MainWindow.h"
 
 #include "app/Application.h"
+#include "ui/pages/BackupPage.h"
 #include "ui/pages/DuplicateFilesPage.h"
 #include "ui/pages/FileOrganizePage.h"
 #include "ui/pages/Pages.h"
@@ -215,7 +216,7 @@ QStackedWidget *MainWindow::buildPages()
     duplicatePage_ = new DuplicateFilesPage(pageStack);
     pageStack->addWidget(organizePage_);
     pageStack->addWidget(duplicatePage_);
-    pageStack->addWidget(new BackupPage(pageStack));
+    pageStack->addWidget(new BackupPage(application_, pageStack));
     pageStack->addWidget(
         new HistoryPage(application_.historyRepository(), pageStack));
     pageStack->addWidget(new SettingsPage(pageStack));

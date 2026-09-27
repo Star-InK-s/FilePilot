@@ -20,6 +20,8 @@ add_library(filepilot_core STATIC
     core/database/BackupHistoryRepository.cpp
     core/database/BackupHistoryRepository.h
     core/database/BackupHistoryTypes.h
+    core/backup/BackupPlanBuilder.cpp
+    core/backup/BackupPlanBuilder.h
     core/backup/BackupPlanTypes.h
     core/backup/BackupTask.cpp
     core/backup/BackupTask.h
@@ -94,6 +96,8 @@ add_library(filepilot_gui STATIC
     ui/models/OrganizePreviewModel.cpp
     ui/models/OrganizePreviewModel.h
     ui/models/FileTableModel.h
+    ui/pages/BackupPage.cpp
+    ui/pages/BackupPage.h
     ui/pages/DuplicateFilesPage.cpp
     ui/pages/DuplicateFilesPage.h
     ui/pages/FileOrganizePage.cpp

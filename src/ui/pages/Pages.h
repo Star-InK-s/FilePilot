@@ -19,12 +19,6 @@ public:
     explicit PlaceholderPage(const QString &title, QWidget *parent = nullptr);
 };
 
-class BackupPage : public PlaceholderPage
-{
-public:
-    explicit BackupPage(QWidget *parent = nullptr);
-};
-
 class HistoryPage : public QWidget
 {
     Q_OBJECT

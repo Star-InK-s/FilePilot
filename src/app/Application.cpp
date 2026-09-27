@@ -45,6 +45,7 @@ Application::Application(int &argc, char **argv, const QString &dataDirectory)
     , logger_(QDir(dataDirectory_).filePath(QStringLiteral("logs/filepilot.log")),
               resolveLogLevel(settings_.logLevelValue()))
     , historyRepository_(QDir(dataDirectory_).filePath(QStringLiteral("history.sqlite")))
+    , backupHistoryRepository_(QDir(dataDirectory_).filePath(QStringLiteral("history.sqlite")))
 {
     setApplicationName(QStringLiteral("FilePilot"));
     setApplicationDisplayName(QStringLiteral("FilePilot"));
@@ -100,6 +101,16 @@ ExecutionHistoryRepository &Application::historyRepository()
 const ExecutionHistoryRepository &Application::historyRepository() const
 {
     return historyRepository_;
+}
+
+BackupHistoryRepository &Application::backupHistoryRepository()
+{
+    return backupHistoryRepository_;
+}
+
+const BackupHistoryRepository &Application::backupHistoryRepository() const
+{
+    return backupHistoryRepository_;
 }
 
 QString Application::dataDirectory() const
