@@ -2,6 +2,7 @@
 
 #include "core/model/AppError.h"
 
+#include <QMetaType>
 #include <QString>
 
 #include <functional>
@@ -45,3 +46,5 @@ struct BackupExecutorHooks {
 };
 
 } // namespace FilePilot
+
+Q_DECLARE_METATYPE(FilePilot::BackupExecutionResult)

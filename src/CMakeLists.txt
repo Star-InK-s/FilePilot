@@ -18,6 +18,8 @@ add_library(filepilot_core STATIC
     core/backup/BackupExecutor.h
     core/backup/BackupExecutionTypes.h
     core/backup/BackupPlanTypes.h
+    core/backup/BackupTask.cpp
+    core/backup/BackupTask.h
     core/backup/BackupPrevalidator.cpp
     core/backup/BackupPrevalidator.h
     core/logging/LogManager.cpp
