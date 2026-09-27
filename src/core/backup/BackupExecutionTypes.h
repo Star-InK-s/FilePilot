@@ -38,6 +38,7 @@ struct BackupExecutorHooks {
     std::function<bool(const QString &, const QString &, QString &)> beforePublish;
     std::function<bool(const QString &, const QString &, QString &)> afterPublish;
     std::function<bool(const QString &, const QString &, QString &)> temporaryVerifier;
+    std::function<bool(const QString &, QString &)> beforeDirectoryEnumeration;
     std::function<bool(const QString &, QString &)> cleanupTemporary;
 };
 
