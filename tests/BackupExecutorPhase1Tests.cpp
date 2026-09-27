@@ -78,6 +78,7 @@ void requireBackupExecutor(
     QCOMPARE(actual.sourcePreserved, expected.sourcePreserved);
     QCOMPARE(actual.cleanupComplete, expected.cleanupComplete);
     QVERIFY2(actual.status == ExpectedStatus::Succeeded
+                 || actual.status == ExpectedStatus::Skipped
                  || actual.error.isValid()
                  || !actual.errorMessage.isEmpty(),
              scenario);
@@ -539,6 +540,126 @@ void BackupExecutorContractTest::doesNotDeleteReplacementAtStagingPath()
     assertSourcePreserved(source, QByteArrayLiteral("source"));
     QVERIFY(!QFileInfo::exists(destination));
     assertDestinationMatches(stagingPath, QByteArrayLiteral("replacement-user-file"));
+}
+
+void BackupExecutorContractTest::skipLeavesExistingFileUnchanged()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString source = QDir(directory.path()).filePath(QStringLiteral("source.txt"));
+    const QString destinationRoot = QDir(directory.path()).filePath(QStringLiteral("destination"));
+    QVERIFY(QDir().mkpath(destinationRoot));
+    QVERIFY(writeTestFile(source, QByteArrayLiteral("source")));
+    const QString destination = QDir(destinationRoot).filePath(QStringLiteral("source.txt"));
+    QVERIFY(writeTestFile(destination, QByteArrayLiteral("existing")));
+
+    BackupPlan plan = makeSingleFilePlan(source, destinationRoot, destination);
+    plan.conflictPolicy = ConflictPolicy::Skip;
+    plan.items.front().conflictPolicy = ConflictPolicy::Skip;
+    const std::atomic_bool cancelled{false};
+    requireBackupExecutor(
+        plan,
+        cancelled,
+        {},
+        {ExpectedStatus::Skipped, false, false, true, true},
+        "skip existing file");
+    assertSourcePreserved(source, QByteArrayLiteral("source"));
+    assertDestinationMatches(destination, QByteArrayLiteral("existing"));
+    QVERIFY(!QFileInfo::exists(stagingPathFor(destination)));
+}
+
+void BackupExecutorContractTest::autoRenameCreatesUniqueFile()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString source = QDir(directory.path()).filePath(QStringLiteral("source.txt"));
+    const QString destinationRoot = QDir(directory.path()).filePath(QStringLiteral("destination"));
+    QVERIFY(QDir().mkpath(destinationRoot));
+    QVERIFY(writeTestFile(source, QByteArrayLiteral("source")));
+    const QString destination = QDir(destinationRoot).filePath(QStringLiteral("source.txt"));
+    const QString firstCandidate =
+        QDir(destinationRoot).filePath(QStringLiteral("source (1).txt"));
+    QVERIFY(writeTestFile(destination, QByteArrayLiteral("existing")));
+    QVERIFY(writeTestFile(firstCandidate, QByteArrayLiteral("occupied")));
+
+    BackupPlan plan = makeSingleFilePlan(source, destinationRoot, destination);
+    plan.conflictPolicy = ConflictPolicy::AutoRename;
+    plan.items.front().conflictPolicy = ConflictPolicy::AutoRename;
+    const std::atomic_bool cancelled{false};
+    const BackupExecutionResult result =
+        BackupExecutor().execute(plan, cancelled, {});
+    QCOMPARE(result.status, ExpectedStatus::Succeeded);
+    QVERIFY(result.published);
+    QVERIFY(result.verified);
+    QVERIFY(result.sourcePreserved);
+    QVERIFY(result.cleanupComplete);
+    const QString expectedDestination =
+        QDir(destinationRoot).filePath(QStringLiteral("source (2).txt"));
+    QCOMPARE(result.actualDestination, expectedDestination);
+    assertSourcePreserved(source, QByteArrayLiteral("source"));
+    assertDestinationMatches(destination, QByteArrayLiteral("existing"));
+    assertDestinationMatches(firstCandidate, QByteArrayLiteral("occupied"));
+    assertDestinationMatches(expectedDestination, QByteArrayLiteral("source"));
+    QVERIFY(!QFileInfo::exists(stagingPathFor(destination)));
+    QVERIFY(!QFileInfo::exists(stagingPathFor(expectedDestination)));
+}
+
+void BackupExecutorContractTest::autoRenameRechecksNameBeforePublish()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString source = QDir(directory.path()).filePath(QStringLiteral("source.txt"));
+    const QString destinationRoot = QDir(directory.path()).filePath(QStringLiteral("destination"));
+    QVERIFY(QDir().mkpath(destinationRoot));
+    QVERIFY(writeTestFile(source, QByteArrayLiteral("source")));
+    const QString destination = QDir(destinationRoot).filePath(QStringLiteral("source.txt"));
+    const QString firstCandidate =
+        QDir(destinationRoot).filePath(QStringLiteral("source (1).txt"));
+    QVERIFY(writeTestFile(destination, QByteArrayLiteral("existing")));
+
+    BackupPlan plan = makeSingleFilePlan(source, destinationRoot, destination);
+    plan.conflictPolicy = ConflictPolicy::AutoRename;
+    plan.items.front().conflictPolicy = ConflictPolicy::AutoRename;
+
+    BackupExecutorHooks hooks;
+    hooks.beforePublish = [&](const QString &, const QString &, QString &) {
+        return writeTestFile(firstCandidate, QByteArrayLiteral("appeared-late"));
+    };
+
+    const std::atomic_bool cancelled{false};
+    const BackupExecutionResult result =
+        BackupExecutor().execute(plan, cancelled, hooks);
+    QCOMPARE(result.status, ExpectedStatus::Succeeded);
+    const QString expectedDestination =
+        QDir(destinationRoot).filePath(QStringLiteral("source (2).txt"));
+    QCOMPARE(result.actualDestination, expectedDestination);
+    assertDestinationMatches(destination, QByteArrayLiteral("existing"));
+    assertDestinationMatches(firstCandidate, QByteArrayLiteral("appeared-late"));
+    assertDestinationMatches(expectedDestination, QByteArrayLiteral("source"));
+    assertSourcePreserved(source, QByteArrayLiteral("source"));
+}
+
+void BackupExecutorContractTest::overwriteReplacesExistingFile()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString source = QDir(directory.path()).filePath(QStringLiteral("source.txt"));
+    const QString destinationRoot = QDir(directory.path()).filePath(QStringLiteral("destination"));
+    QVERIFY(QDir().mkpath(destinationRoot));
+    QVERIFY(writeTestFile(source, QByteArrayLiteral("source")));
+    const QString destination = QDir(destinationRoot).filePath(QStringLiteral("source.txt"));
+    QVERIFY(writeTestFile(destination, QByteArrayLiteral("old")));
+
+    const BackupPlan plan = makeSingleFilePlan(source, destinationRoot, destination);
+    const std::atomic_bool cancelled{false};
+    requireBackupExecutor(
+        plan,
+        cancelled,
+        {},
+        {ExpectedStatus::Succeeded, true, true, true, true},
+        "overwrite existing file");
+    assertSourcePreserved(source, QByteArrayLiteral("source"));
+    assertDestinationMatches(destination, QByteArrayLiteral("source"));
 }
 
 void BackupExecutorContractTest::doesNotUseOrganizeMoveSemantics()

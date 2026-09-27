@@ -14,6 +14,9 @@ private slots:
     void emptyDirectorySucceedsAndPreservesSource();
     void rejectsUnsupportedReparseEntry();
     void enumerationFailureDoesNotPublishOrReportSuccess();
+    void skipLeavesExistingDirectoryUnchanged();
+    void autoRenameCreatesUniqueDirectory();
+    void directoryOverwriteIsExplicitlyRejected();
 };
 
 } // namespace BackupDirectoryTest

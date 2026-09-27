@@ -10,6 +10,7 @@ namespace FilePilot {
 
 enum class BackupExecutionStatus {
     Succeeded,
+    Skipped,
     Failed,
     Cancelled,
     VerificationFailed,

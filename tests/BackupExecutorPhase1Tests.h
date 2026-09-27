@@ -25,6 +25,10 @@ private slots:
     void rejectsMismatchedPlannedSource();
     void rejectsDestinationOutsideDestinationRoot();
     void doesNotDeleteReplacementAtStagingPath();
+    void skipLeavesExistingFileUnchanged();
+    void autoRenameCreatesUniqueFile();
+    void autoRenameRechecksNameBeforePublish();
+    void overwriteReplacesExistingFile();
     void doesNotUseOrganizeMoveSemantics();
 };
 

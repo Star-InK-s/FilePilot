@@ -8,6 +8,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QRegularExpression>
 
 #include <algorithm>
 #include <filesystem>
@@ -176,6 +177,100 @@ bool publishTemporary(const QString &temporaryPath,
     }
     return true;
 #endif
+}
+
+QString autoRenameCandidate(const QString &destination, const int index)
+{
+    const QFileInfo info(destination);
+    const QString suffix = info.completeSuffix();
+    QString baseName = info.completeBaseName();
+    static const QRegularExpression existingNumbering(
+        QStringLiteral(" \\([0-9]+\\)$"));
+    baseName.remove(existingNumbering);
+    const QString candidateName =
+        baseName
+        + QStringLiteral(" (")
+        + QString::number(index)
+        + QLatin1Char(')')
+        + (suffix.isEmpty() ? QString() : QLatin1Char('.') + suffix);
+    return QDir(info.absolutePath()).filePath(candidateName);
+}
+
+bool chooseAutoRenameDestination(const QString &destinationRoot,
+                                 const QString &destination,
+                                 QString &renamed,
+                                 QString &error)
+{
+    for (int index = 1; index <= 10000; ++index) {
+        const QString candidate = autoRenameCandidate(destination, index);
+        if (!pathIsWithinRoot(destinationRoot, candidate)) {
+            error = QStringLiteral("自动重命名目标超出备份目标根目录");
+            return false;
+        }
+
+        FilesystemPathInfo info;
+        QString inspectionError;
+        if (!inspectFilesystemPath(candidate, info, inspectionError)
+            || !info.inspected) {
+            error = inspectionError.isEmpty()
+                ? QStringLiteral("无法重新检查自动重命名目标")
+                : inspectionError;
+            return false;
+        }
+        if (info.kind == FilesystemPathKind::Missing) {
+            renamed = candidate;
+            return true;
+        }
+    }
+
+    error = QStringLiteral("无法找到安全的自动重命名目标");
+    return false;
+}
+
+bool publishAutoRenameTemporary(const QString &temporaryPath,
+                                const QString &destinationRoot,
+                                QString &destination,
+                                QString &error)
+{
+    for (int attempt = 0; attempt < 10000; ++attempt) {
+        FilesystemPathInfo info;
+        QString inspectionError;
+        if (!inspectFilesystemPath(destination, info, inspectionError)
+            || !info.inspected) {
+            error = inspectionError.isEmpty()
+                ? QStringLiteral("无法重新检查自动重命名目标")
+                : inspectionError;
+            return false;
+        }
+
+        if (info.kind != FilesystemPathKind::Missing) {
+            if (!chooseAutoRenameDestination(
+                    destinationRoot, destination, destination, error)) {
+                return false;
+            }
+            continue;
+        }
+
+        if (publishTemporary(temporaryPath, destination, false, error)) {
+            return true;
+        }
+
+        if (!inspectFilesystemPath(destination, info, inspectionError)
+            || !info.inspected) {
+            error = QStringLiteral("无法确认自动重命名发布结果");
+            return false;
+        }
+        if (info.kind == FilesystemPathKind::Missing) {
+            return false;
+        }
+        if (!chooseAutoRenameDestination(
+                destinationRoot, destination, destination, error)) {
+            return false;
+        }
+    }
+
+    error = QStringLiteral("无法安全发布自动重命名目标");
+    return false;
 }
 
 bool captureTemporaryIdentity(const QString &temporaryPath,
@@ -659,7 +754,7 @@ BackupExecutionResult executeDirectoryBackup(
     const BackupExecutorHooks &hooks)
 {
     const QString source = plan.sourcePath;
-    const QString destination = plan.finalDestinationPath;
+    QString destination = plan.finalDestinationPath;
     const QString temporaryPath =
         destination + QStringLiteral(".filepilot-backup-staging");
 
@@ -1034,7 +1129,8 @@ BackupExecutionResult executeDirectoryBackup(
             destination);
     }
 
-    if (QFileInfo::exists(destination)) {
+    if (plan.conflictPolicy != ConflictPolicy::AutoRename
+        && QFileInfo::exists(destination)) {
         QString cleanupError;
         const bool cleaned = cleanupDirectoryTemporary(
             temporaryPath, staging, hooks, cleanupError);
@@ -1079,7 +1175,12 @@ BackupExecutionResult executeDirectoryBackup(
             destination);
     }
 
-    if (!publishTemporary(temporaryPath, destination, false, error)) {
+    const bool publishSucceeded =
+        plan.conflictPolicy == ConflictPolicy::AutoRename
+        ? publishAutoRenameTemporary(
+            temporaryPath, plan.destinationRoot, destination, error)
+        : publishTemporary(temporaryPath, destination, false, error);
+    if (!publishSucceeded) {
         QString cleanupError;
         const bool cleaned = cleanupDirectoryTemporary(
             temporaryPath, staging, hooks, cleanupError);
@@ -1144,9 +1245,10 @@ BackupExecutionResult BackupExecutor::execute(
     const std::atomic_bool &cancelled,
     const BackupExecutorHooks &hooks) const
 {
-    const QString source = plan.sourcePath;
-    const QString destination = plan.finalDestinationPath;
-    const QString temporaryPath =
+    BackupPlan activePlan = plan;
+    const QString source = activePlan.sourcePath;
+    QString destination = activePlan.finalDestinationPath;
+    QString temporaryPath =
         destination + QStringLiteral(".filepilot-backup-staging");
 
     if (cancelled.load(std::memory_order_relaxed)) {
@@ -1173,13 +1275,94 @@ BackupExecutionResult BackupExecutor::execute(
             destination);
     }
 
-    if (plan.sourceKind == BackupEntryKind::Directory) {
-        return executeDirectoryBackup(plan, cancelled, hooks);
+    const BackupValidationResult conflictRootValidation =
+        BackupPrevalidator().validateRoots(source, activePlan.destinationRoot);
+    const BackupValidationResult conflictDestinationValidation =
+        BackupPrevalidator().validateRoots(source, destination);
+    if (!conflictRootValidation.valid || !conflictDestinationValidation.valid) {
+        const BackupValidationResult &failure = conflictRootValidation.valid
+            ? conflictDestinationValidation
+            : conflictRootValidation;
+        return makeResult(
+            BackupExecutionStatus::Failed,
+            failure.error.message().isEmpty()
+                ? QStringLiteral("备份路径验证失败")
+                : failure.error.message(),
+            false,
+            false,
+            true,
+            true,
+            temporaryPath,
+            destination);
     }
 
-    if (plan.sourceKind != BackupEntryKind::File
-        || plan.items.size() != 1
-        || plan.items.front().kind != BackupEntryKind::File) {
+    BackupPlan effectivePlan = activePlan;
+    QString effectiveDestination = destination;
+    if (QFileInfo::exists(destination)) {
+        if (activePlan.conflictPolicy == ConflictPolicy::Skip) {
+            return makeResult(
+                BackupExecutionStatus::Skipped,
+                QString(),
+                false,
+                false,
+                true,
+                true,
+                temporaryPath,
+                destination);
+        }
+
+        if (activePlan.sourceKind == BackupEntryKind::Directory
+            && activePlan.conflictPolicy == ConflictPolicy::Overwrite) {
+            return makeResult(
+                BackupExecutionStatus::Failed,
+                QStringLiteral("不支持目录覆盖；拒绝危险的递归覆盖"),
+                false,
+                false,
+                true,
+                true,
+                temporaryPath,
+                destination);
+        }
+
+        if (activePlan.conflictPolicy == ConflictPolicy::AutoRename) {
+            QString renameError;
+            if (!chooseAutoRenameDestination(
+                    activePlan.destinationRoot,
+                    destination,
+                    effectiveDestination,
+                    renameError)) {
+                return makeResult(
+                    BackupExecutionStatus::Failed,
+                    renameError,
+                    false,
+                    false,
+                    true,
+                    true,
+                    temporaryPath,
+                    destination);
+            }
+
+            effectivePlan.finalDestinationPath = effectiveDestination;
+            for (BackupPlanItem &item : effectivePlan.items) {
+                item.plannedDestinationPath =
+                    activePlan.sourceKind == BackupEntryKind::Directory
+                    ? QDir(effectiveDestination).filePath(item.relativePath)
+                    : effectiveDestination;
+            }
+        }
+    }
+
+    activePlan = effectivePlan;
+    destination = activePlan.finalDestinationPath;
+    temporaryPath = destination + QStringLiteral(".filepilot-backup-staging");
+
+    if (activePlan.sourceKind == BackupEntryKind::Directory) {
+        return executeDirectoryBackup(activePlan, cancelled, hooks);
+    }
+
+    if (activePlan.sourceKind != BackupEntryKind::File
+        || activePlan.items.size() != 1
+        || activePlan.items.front().kind != BackupEntryKind::File) {
         return makeResult(
             BackupExecutionStatus::Failed,
             QStringLiteral("仅支持单个普通文件或目录备份"),
@@ -1192,7 +1375,7 @@ BackupExecutionResult BackupExecutor::execute(
     }
 
     const BackupValidationResult validation =
-        BackupPrevalidator().validateRoots(source, plan.destinationRoot);
+        BackupPrevalidator().validateRoots(source, activePlan.destinationRoot);
     if (!validation.valid) {
         return makeResult(
             BackupExecutionStatus::Failed,
@@ -1223,7 +1406,7 @@ BackupExecutionResult BackupExecutor::execute(
             destination);
     }
 
-    const BackupPlanItem &plannedItem = plan.items.front();
+    const BackupPlanItem &plannedItem = activePlan.items.front();
     if (plannedItem.plannedDestinationPath != destination) {
         return makeResult(
             BackupExecutionStatus::Failed,
@@ -1237,7 +1420,7 @@ BackupExecutionResult BackupExecutor::execute(
     }
     if (plannedItem.sourcePath != source
         || plannedItem.relativePath != QFileInfo(source).fileName()
-        || plannedItem.conflictPolicy != plan.conflictPolicy) {
+        || plannedItem.conflictPolicy != activePlan.conflictPolicy) {
         return makeResult(
             BackupExecutionStatus::Failed,
             QStringLiteral("计划条目与单文件备份计划不一致"),
@@ -1249,12 +1432,12 @@ BackupExecutionResult BackupExecutor::execute(
             destination);
     }
 
-    const QFileInfo destinationRootInfo(plan.destinationRoot);
+    const QFileInfo destinationRootInfo(activePlan.destinationRoot);
     const QFileInfo destinationInfo(destination);
     if (!destinationRootInfo.exists()
         || !destinationRootInfo.isDir()
         || !QDir::isAbsolutePath(destination)
-        || !pathIsWithinRoot(plan.destinationRoot, destination)) {
+        || !pathIsWithinRoot(activePlan.destinationRoot, destination)) {
         return makeResult(
             BackupExecutionStatus::Failed,
             QStringLiteral("备份目标目录不可用"),
@@ -1504,7 +1687,8 @@ BackupExecutionResult BackupExecutor::execute(
             destination);
     }
 
-    if (!destinationMatchesState(
+    if (activePlan.conflictPolicy != ConflictPolicy::AutoRename
+        && !destinationMatchesState(
             destination, destinationExisted, destinationSnapshot, error)) {
         QString cleanupError;
         const bool cleaned = cleanupTemporary(temporaryPath, temporaryIdentity, hooks, cleanupError);
@@ -1547,11 +1731,16 @@ BackupExecutionResult BackupExecutor::execute(
             destination);
     }
 
-    if (!publishTemporary(
+    const bool publishSucceeded =
+        activePlan.conflictPolicy == ConflictPolicy::AutoRename
+        ? publishAutoRenameTemporary(
+            temporaryPath, activePlan.destinationRoot, destination, error)
+        : publishTemporary(
             temporaryPath,
             destination,
-            plan.conflictPolicy == ConflictPolicy::Overwrite,
-            error)) {
+            activePlan.conflictPolicy == ConflictPolicy::Overwrite,
+            error);
+    if (!publishSucceeded) {
         QString cleanupError;
         const bool cleaned = cleanupTemporary(temporaryPath, temporaryIdentity, hooks, cleanupError);
         return makeResult(
