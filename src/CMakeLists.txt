@@ -17,6 +17,9 @@ add_library(filepilot_core STATIC
     core/backup/BackupExecutor.cpp
     core/backup/BackupExecutor.h
     core/backup/BackupExecutionTypes.h
+    core/database/BackupHistoryRepository.cpp
+    core/database/BackupHistoryRepository.h
+    core/database/BackupHistoryTypes.h
     core/backup/BackupPlanTypes.h
     core/backup/BackupTask.cpp
     core/backup/BackupTask.h

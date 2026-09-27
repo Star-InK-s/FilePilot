@@ -123,3 +123,21 @@ add_test(
 set_tests_properties(filepilot_backup_task_contract PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;FILEPILOT_BACKUP_TASK_TEST_CLASS=BackupTaskContractTest"
 )
+add_executable(filepilot_backup_history_tests
+    BackupHistoryTests.cpp
+    BackupHistoryTests.h
+)
+target_link_libraries(filepilot_backup_history_tests
+    PRIVATE
+        filepilot_core
+        Qt6::Test
+)
+filepilot_enable_warnings(filepilot_backup_history_tests)
+
+add_test(
+    NAME filepilot_backup_history_contract
+    COMMAND filepilot_backup_history_tests
+)
+set_tests_properties(filepilot_backup_history_contract PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;FILEPILOT_BACKUP_HISTORY_TEST_CLASS=BackupHistoryContractTest"
+)
