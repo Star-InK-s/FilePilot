@@ -17,6 +17,10 @@ private slots:
     void skipLeavesExistingDirectoryUnchanged();
     void autoRenameCreatesUniqueDirectory();
     void directoryOverwriteIsExplicitlyRejected();
+    void cancelDuringCopyCleansStagingTree();
+    void cancelBeforeVerifyCleansStagingTree();
+    void cleanupFailureAfterPublishIsReported();
+    void publishFailureCleansStagingTree();
 };
 
 } // namespace BackupDirectoryTest

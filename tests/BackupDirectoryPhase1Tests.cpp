@@ -473,6 +473,128 @@ void BackupDirectoryPhase1ContractTest::directoryOverwriteIsExplicitlyRejected()
     QVERIFY(!QFileInfo::exists(stagingPathFor(plan.finalDestinationPath)));
 }
 
+void BackupDirectoryPhase1ContractTest::cancelDuringCopyCleansStagingTree()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString source = QDir(directory.path()).filePath(QStringLiteral("source"));
+    const QString destinationRoot = QDir(directory.path()).filePath(QStringLiteral("destination-root"));
+    QVERIFY(QDir().mkpath(source));
+    QVERIFY(QDir().mkpath(destinationRoot));
+    QVERIFY(writeTestFile(
+        QDir(source).filePath(QStringLiteral("file.txt")), QByteArrayLiteral("payload")));
+    BackupPlan plan;
+    AppError planError;
+    QVERIFY(buildDirectoryPlan(source, destinationRoot, plan, planError));
+
+    std::atomic_bool cancelled{false};
+    BackupExecutorHooks hooks;
+    hooks.duringCopy = [&](qint64, const QString &, const QString &, QString &) {
+        cancelled.store(true);
+        return true;
+    };
+    const BackupExecutionResult result =
+        BackupExecutor().execute(plan, cancelled, hooks);
+    requireResult(
+        result,
+        {BackupExecutionStatus::Cancelled, false, false, true, true},
+        "directory cancel during copy");
+    QVERIFY(QFileInfo(source).isDir());
+    QVERIFY(!QFileInfo::exists(plan.finalDestinationPath));
+    QVERIFY(!QFileInfo::exists(stagingPathFor(plan.finalDestinationPath)));
+}
+
+void BackupDirectoryPhase1ContractTest::cancelBeforeVerifyCleansStagingTree()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString source = QDir(directory.path()).filePath(QStringLiteral("source"));
+    const QString destinationRoot = QDir(directory.path()).filePath(QStringLiteral("destination-root"));
+    QVERIFY(QDir().mkpath(source));
+    QVERIFY(QDir().mkpath(destinationRoot));
+    QVERIFY(writeTestFile(
+        QDir(source).filePath(QStringLiteral("file.txt")), QByteArrayLiteral("payload")));
+    BackupPlan plan;
+    AppError planError;
+    QVERIFY(buildDirectoryPlan(source, destinationRoot, plan, planError));
+
+    std::atomic_bool cancelled{false};
+    BackupExecutorHooks hooks;
+    hooks.beforeVerify = [&](const QString &, const QString &, QString &) {
+        cancelled.store(true);
+        return true;
+    };
+    const BackupExecutionResult result =
+        BackupExecutor().execute(plan, cancelled, hooks);
+    requireResult(
+        result,
+        {BackupExecutionStatus::Cancelled, false, false, true, true},
+        "directory cancel before verify");
+    QVERIFY(!QFileInfo::exists(plan.finalDestinationPath));
+    QVERIFY(!QFileInfo::exists(stagingPathFor(plan.finalDestinationPath)));
+}
+
+void BackupDirectoryPhase1ContractTest::cleanupFailureAfterPublishIsReported()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString source = QDir(directory.path()).filePath(QStringLiteral("source"));
+    const QString destinationRoot = QDir(directory.path()).filePath(QStringLiteral("destination-root"));
+    QVERIFY(QDir().mkpath(source));
+    QVERIFY(QDir().mkpath(destinationRoot));
+    QVERIFY(writeTestFile(
+        QDir(source).filePath(QStringLiteral("file.txt")), QByteArrayLiteral("payload")));
+    BackupPlan plan;
+    AppError planError;
+    QVERIFY(buildDirectoryPlan(source, destinationRoot, plan, planError));
+
+    BackupExecutorHooks hooks;
+    hooks.cleanupTemporary = [](const QString &, QString &error) {
+        error = QStringLiteral("injected directory cleanup failure");
+        return false;
+    };
+    const std::atomic_bool cancelled{false};
+    const BackupExecutionResult result =
+        BackupExecutor().execute(plan, cancelled, hooks);
+    requireResult(
+        result,
+        {BackupExecutionStatus::CleanupFailed, true, true, true, false},
+        "directory cleanup failure");
+    requireMatchingFile(
+        QDir(source).filePath(QStringLiteral("file.txt")),
+        QDir(plan.finalDestinationPath).filePath(QStringLiteral("file.txt")));
+}
+
+void BackupDirectoryPhase1ContractTest::publishFailureCleansStagingTree()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString source = QDir(directory.path()).filePath(QStringLiteral("source"));
+    const QString destinationRoot = QDir(directory.path()).filePath(QStringLiteral("destination-root"));
+    QVERIFY(QDir().mkpath(source));
+    QVERIFY(QDir().mkpath(destinationRoot));
+    QVERIFY(writeTestFile(
+        QDir(source).filePath(QStringLiteral("file.txt")), QByteArrayLiteral("payload")));
+    BackupPlan plan;
+    AppError planError;
+    QVERIFY(buildDirectoryPlan(source, destinationRoot, plan, planError));
+
+    BackupExecutorHooks hooks;
+    hooks.beforePublish = [](const QString &, const QString &, QString &error) {
+        error = QStringLiteral("injected directory publish failure");
+        return false;
+    };
+    const std::atomic_bool cancelled{false};
+    const BackupExecutionResult result =
+        BackupExecutor().execute(plan, cancelled, hooks);
+    requireResult(
+        result,
+        {BackupExecutionStatus::PublishFailed, false, true, true, true},
+        "directory publish failure");
+    QVERIFY(!QFileInfo::exists(plan.finalDestinationPath));
+    QVERIFY(!QFileInfo::exists(stagingPathFor(plan.finalDestinationPath)));
+}
+
 } // namespace BackupDirectoryTest
 } // namespace FilePilot
 

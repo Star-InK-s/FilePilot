@@ -20,6 +20,9 @@ private slots:
     void rejectsDestinationMutationBeforePublish();
     void cancelsBeforeCopy();
     void cancelsBeforePublish();
+    void cancelsDuringCopyWithoutPublishing();
+    void cancelsBeforeVerifyWithoutPublishing();
+    void cancelAfterPublishKeepsVerifiedBackup();
     void reportsTempCleanupFailure();
     void failsOnPublishFailure();
     void rejectsMismatchedPlannedSource();

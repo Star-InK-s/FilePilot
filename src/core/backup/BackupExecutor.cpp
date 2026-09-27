@@ -527,6 +527,8 @@ DirectoryCopyStatus copyDirectoryFile(
     const QString &temporaryPath,
     const FileSnapshot &expectedSnapshot,
     const std::atomic_bool &cancelled,
+    const BackupExecutorHooks &hooks,
+    FileIdentity &createdIdentity,
     QString &error)
 {
     QFile sourceFile(sourcePath);
@@ -535,6 +537,12 @@ DirectoryCopyStatus copyDirectoryFile(
         || !temporaryFile.open(
             QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::NewOnly)) {
         error = QStringLiteral("无法创建或打开临时备份文件");
+        return DirectoryCopyStatus::Failed;
+    }
+
+    if (!captureTemporaryIdentity(temporaryPath, createdIdentity, error)) {
+        temporaryFile.close();
+        sourceFile.close();
         return DirectoryCopyStatus::Failed;
     }
 
@@ -565,6 +573,18 @@ DirectoryCopyStatus copyDirectoryFile(
             return DirectoryCopyStatus::Failed;
         }
         totalWritten += bytesRead;
+        if (hooks.duringCopy
+            && !hooks.duringCopy(
+                totalWritten, sourcePath, temporaryPath, error)) {
+            temporaryFile.close();
+            sourceFile.close();
+            return DirectoryCopyStatus::Failed;
+        }
+        if (cancelled.load(std::memory_order_relaxed)) {
+            temporaryFile.close();
+            sourceFile.close();
+            return DirectoryCopyStatus::Cancelled;
+        }
     }
 
     if (!temporaryFile.flush()) {
@@ -1004,12 +1024,19 @@ BackupExecutionResult executeDirectoryBackup(
                 destination);
         }
 
+        FileIdentity createdIdentity;
         const DirectoryCopyStatus copyStatus = copyDirectoryFile(
             item.sourcePath,
             itemDestination,
             sourceSnapshot,
             cancelled,
+            hooks,
+            createdIdentity,
             error);
+        if (createdIdentity.valid) {
+            staging.ownedIdentities.emplace(
+                relativeStorageKey(item.relativePath), createdIdentity);
+        }
         if (copyStatus == DirectoryCopyStatus::Cancelled) {
             QString cleanupError;
             const bool cleaned = cleanupDirectoryTemporary(
@@ -1031,6 +1058,21 @@ BackupExecutionResult executeDirectoryBackup(
             return makeResult(
                 BackupExecutionStatus::Failed,
                 error,
+                false,
+                false,
+                true,
+                cleaned,
+                temporaryPath,
+                destination);
+        }
+
+        if (cancelled.load(std::memory_order_relaxed)) {
+            QString cleanupError;
+            const bool cleaned = cleanupDirectoryTemporary(
+                temporaryPath, staging, hooks, cleanupError);
+            return makeResult(
+                BackupExecutionStatus::Cancelled,
+                QStringLiteral("备份已取消"),
                 false,
                 false,
                 true,
@@ -1061,6 +1103,21 @@ BackupExecutionResult executeDirectoryBackup(
             return makeResult(
                 BackupExecutionStatus::Failed,
                 error.isEmpty() ? QStringLiteral("验证前检查失败") : error,
+                false,
+                false,
+                true,
+                cleaned,
+                temporaryPath,
+                destination);
+        }
+
+        if (cancelled.load(std::memory_order_relaxed)) {
+            QString cleanupError;
+            const bool cleaned = cleanupDirectoryTemporary(
+                temporaryPath, staging, hooks, cleanupError);
+            return makeResult(
+                BackupExecutionStatus::Cancelled,
+                QStringLiteral("备份已取消"),
                 false,
                 false,
                 true,
@@ -1578,6 +1635,22 @@ BackupExecutionResult BackupExecutor::execute(
                 destination);
         }
         totalWritten += bytesRead;
+        if (hooks.duringCopy
+            && !hooks.duringCopy(totalWritten, source, temporaryPath, error)) {
+            temporaryFile.close();
+            sourceFile.close();
+            QString cleanupError;
+            const bool cleaned = cleanupTemporary(temporaryPath, temporaryIdentity, hooks, cleanupError);
+            return makeResult(
+                BackupExecutionStatus::Failed,
+                error.isEmpty() ? QStringLiteral("复制中检查失败") : error,
+                false,
+                false,
+                sourceExistedAtStart && QFileInfo::exists(source),
+                cleaned,
+                temporaryPath,
+                destination);
+        }
     }
 
     if (!temporaryFile.flush()) {
@@ -1597,6 +1670,20 @@ BackupExecutionResult BackupExecutor::execute(
     }
     temporaryFile.close();
     sourceFile.close();
+
+    if (cancelled.load(std::memory_order_relaxed)) {
+        QString cleanupError;
+        const bool cleaned = cleanupTemporary(temporaryPath, temporaryIdentity, hooks, cleanupError);
+        return makeResult(
+            BackupExecutionStatus::Cancelled,
+            QStringLiteral("备份已取消"),
+            false,
+            false,
+            sourceExistedAtStart && QFileInfo::exists(source),
+            cleaned,
+            temporaryPath,
+            destination);
+    }
 
     if (totalWritten != sourceSnapshot.size) {
         QString cleanupError;
@@ -1632,6 +1719,20 @@ BackupExecutionResult BackupExecutor::execute(
         return makeResult(
             BackupExecutionStatus::Failed,
             error.isEmpty() ? QStringLiteral("验证前检查失败") : error,
+            false,
+            false,
+            sourceExistedAtStart && QFileInfo::exists(source),
+            cleaned,
+            temporaryPath,
+            destination);
+    }
+
+    if (cancelled.load(std::memory_order_relaxed)) {
+        QString cleanupError;
+        const bool cleaned = cleanupTemporary(temporaryPath, temporaryIdentity, hooks, cleanupError);
+        return makeResult(
+            BackupExecutionStatus::Cancelled,
+            QStringLiteral("备份已取消"),
             false,
             false,
             sourceExistedAtStart && QFileInfo::exists(source),

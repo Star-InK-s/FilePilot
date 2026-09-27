@@ -379,6 +379,93 @@ void BackupExecutorContractTest::cancelsBeforePublish()
     QVERIFY(!QFileInfo::exists(stagingPathFor(destination)));
 }
 
+void BackupExecutorContractTest::cancelsDuringCopyWithoutPublishing()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString source = QDir(directory.path()).filePath(QStringLiteral("source.txt"));
+    const QString destinationRoot = QDir(directory.path()).filePath(QStringLiteral("destination"));
+    QVERIFY(QDir().mkpath(destinationRoot));
+    QVERIFY(writeTestFile(source, QByteArrayLiteral("source")));
+    const QString destination = QDir(destinationRoot).filePath(QStringLiteral("source.txt"));
+
+    std::atomic_bool cancelled{false};
+    BackupExecutorHooks hooks;
+    hooks.duringCopy = [&](qint64, const QString &, const QString &, QString &) {
+        cancelled.store(true);
+        return true;
+    };
+
+    const BackupPlan plan = makeSingleFilePlan(source, destinationRoot, destination);
+    requireBackupExecutor(
+        plan,
+        cancelled,
+        hooks,
+        {ExpectedStatus::Cancelled, false, false, true, true},
+        "cancel during copy");
+    assertSourcePreserved(source, QByteArrayLiteral("source"));
+    QVERIFY(!QFileInfo::exists(destination));
+    QVERIFY(!QFileInfo::exists(stagingPathFor(destination)));
+}
+
+void BackupExecutorContractTest::cancelsBeforeVerifyWithoutPublishing()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString source = QDir(directory.path()).filePath(QStringLiteral("source.txt"));
+    const QString destinationRoot = QDir(directory.path()).filePath(QStringLiteral("destination"));
+    QVERIFY(QDir().mkpath(destinationRoot));
+    QVERIFY(writeTestFile(source, QByteArrayLiteral("source")));
+    const QString destination = QDir(destinationRoot).filePath(QStringLiteral("source.txt"));
+
+    std::atomic_bool cancelled{false};
+    BackupExecutorHooks hooks;
+    hooks.beforeVerify = [&](const QString &, const QString &, QString &) {
+        cancelled.store(true);
+        return true;
+    };
+
+    const BackupPlan plan = makeSingleFilePlan(source, destinationRoot, destination);
+    requireBackupExecutor(
+        plan,
+        cancelled,
+        hooks,
+        {ExpectedStatus::Cancelled, false, false, true, true},
+        "cancel before verify");
+    assertSourcePreserved(source, QByteArrayLiteral("source"));
+    QVERIFY(!QFileInfo::exists(destination));
+    QVERIFY(!QFileInfo::exists(stagingPathFor(destination)));
+}
+
+void BackupExecutorContractTest::cancelAfterPublishKeepsVerifiedBackup()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString source = QDir(directory.path()).filePath(QStringLiteral("source.txt"));
+    const QString destinationRoot = QDir(directory.path()).filePath(QStringLiteral("destination"));
+    QVERIFY(QDir().mkpath(destinationRoot));
+    QVERIFY(writeTestFile(source, QByteArrayLiteral("source")));
+    const QString destination = QDir(destinationRoot).filePath(QStringLiteral("source.txt"));
+
+    std::atomic_bool cancelled{false};
+    BackupExecutorHooks hooks;
+    hooks.afterPublish = [&](const QString &, const QString &, QString &) {
+        cancelled.store(true);
+        return true;
+    };
+
+    const BackupPlan plan = makeSingleFilePlan(source, destinationRoot, destination);
+    requireBackupExecutor(
+        plan,
+        cancelled,
+        hooks,
+        {ExpectedStatus::Succeeded, true, true, true, true},
+        "cancel after publish");
+    assertSourcePreserved(source, QByteArrayLiteral("source"));
+    assertDestinationMatches(destination, QByteArrayLiteral("source"));
+    QVERIFY(!QFileInfo::exists(stagingPathFor(destination)));
+}
+
 void BackupExecutorContractTest::reportsTempCleanupFailure()
 {
     QTemporaryDir directory;

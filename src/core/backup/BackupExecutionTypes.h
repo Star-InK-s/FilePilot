@@ -34,6 +34,7 @@ struct BackupExecutionResult {
 
 struct BackupExecutorHooks {
     std::function<bool(const QString &, const QString &, QString &)> beforeCopy;
+    std::function<bool(qint64, const QString &, const QString &, QString &)> duringCopy;
     std::function<bool(const QString &, const QString &, QString &)> afterCopy;
     std::function<bool(const QString &, const QString &, QString &)> beforeVerify;
     std::function<bool(const QString &, const QString &, QString &)> beforePublish;
