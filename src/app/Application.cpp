@@ -1,6 +1,7 @@
 #include "app/Application.h"
 
 #include <QDir>
+#include <QIcon>
 #include <QStandardPaths>
 
 namespace FilePilot {
@@ -51,6 +52,7 @@ Application::Application(int &argc, char **argv, const QString &dataDirectory)
     setApplicationDisplayName(QStringLiteral("FilePilot"));
     setApplicationVersion(QStringLiteral("1.0.0"));
     setOrganizationName(QStringLiteral("FilePilot"));
+    setWindowIcon(QIcon(QStringLiteral(":/icons/filepilot.png")));
 
     logger_.log(LogLevel::Info,
                 QStringLiteral("Application"),

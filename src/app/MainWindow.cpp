@@ -30,6 +30,7 @@ MainWindow::MainWindow(Application &application, QWidget *parent)
     : QMainWindow(parent)
     , application_(application)
 {
+    setWindowIcon(QApplication::windowIcon());
     buildUi();
     restoreWindowState();
     if (auto *toolBar = findChild<QToolBar *>(QStringLiteral("mainToolBar"))) {

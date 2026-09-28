@@ -131,7 +131,14 @@ filepilot_enable_warnings(filepilot_gui)
 
 add_executable(filepilot WIN32
     app/main.cpp
+    ${CMAKE_SOURCE_DIR}/resources/filepilot.qrc
 )
+
+if(WIN32)
+    target_sources(filepilot PRIVATE
+        ${CMAKE_SOURCE_DIR}/resources/icons/filepilot.rc
+    )
+endif()
 
 target_link_libraries(filepilot
     PRIVATE
