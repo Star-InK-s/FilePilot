@@ -1,6 +1,6 @@
 #include "ui/theme/QtThemeApplier.h"
 
-#include "ui/presenters/DuplicateTheme.h"
+#include "ui/theme/ThemeStyleSheet.h"
 
 #include <QApplication>
 #include <QPalette>
@@ -36,16 +36,28 @@ bool QtThemeApplier::apply(const ThemePalette &palette)
     widgetPalette.setColor(QPalette::Base, palette.surface());
     widgetPalette.setColor(QPalette::AlternateBase, palette.surfaceSecondary());
     widgetPalette.setColor(QPalette::Text, palette.textPrimary());
-    widgetPalette.setColor(QPalette::Button, palette.control());
-    widgetPalette.setColor(QPalette::ButtonText, palette.textPrimary());
+    widgetPalette.setColor(QPalette::Button, palette.buttonBackground());
+    widgetPalette.setColor(QPalette::ButtonText, palette.accentText());
     widgetPalette.setColor(QPalette::Highlight, palette.selection());
     widgetPalette.setColor(QPalette::HighlightedText, palette.selectionText());
     widgetPalette.setColor(QPalette::ToolTipBase, palette.surface());
     widgetPalette.setColor(QPalette::ToolTipText, palette.textPrimary());
     widgetPalette.setColor(QPalette::PlaceholderText, palette.textSecondary());
-    widgetPalette.setColor(QPalette::Disabled, QPalette::Text, palette.disabledText());
-    widgetPalette.setColor(QPalette::Disabled, QPalette::WindowText, palette.disabledText());
-    widgetPalette.setColor(QPalette::Disabled, QPalette::ButtonText, palette.disabledText());
+    widgetPalette.setColor(QPalette::Link, palette.focus());
+    widgetPalette.setColor(QPalette::LinkVisited, palette.focus());
+
+    widgetPalette.setColor(QPalette::Disabled, QPalette::Window, palette.disabledSurface());
+    widgetPalette.setColor(QPalette::Disabled, QPalette::WindowText, palette.textDisabled());
+    widgetPalette.setColor(QPalette::Disabled, QPalette::Base, palette.disabledSurface());
+    widgetPalette.setColor(QPalette::Disabled, QPalette::AlternateBase, palette.disabledSurface());
+    widgetPalette.setColor(QPalette::Disabled, QPalette::Text, palette.textDisabled());
+    widgetPalette.setColor(QPalette::Disabled, QPalette::Button, palette.disabledSurface());
+    widgetPalette.setColor(QPalette::Disabled, QPalette::ButtonText, palette.textDisabled());
+    widgetPalette.setColor(QPalette::Disabled, QPalette::Highlight, palette.selection());
+    widgetPalette.setColor(QPalette::Disabled, QPalette::HighlightedText, palette.selectionText());
+    widgetPalette.setColor(QPalette::Disabled, QPalette::ToolTipBase, palette.disabledSurface());
+    widgetPalette.setColor(QPalette::Disabled, QPalette::ToolTipText, palette.textDisabled());
+    widgetPalette.setColor(QPalette::Disabled, QPalette::PlaceholderText, palette.textDisabled());
 
     if (QApplication::instance() != nullptr
         && QApplication::palette() != widgetPalette) {

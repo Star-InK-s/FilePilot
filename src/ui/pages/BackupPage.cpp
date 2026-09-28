@@ -159,7 +159,7 @@ void BackupPage::buildUi()
     errorLabel_ = new QLabel(this);
     errorLabel_->setObjectName(QStringLiteral("backupErrorLabel"));
     errorLabel_->setWordWrap(true);
-    errorLabel_->setStyleSheet(QStringLiteral("color: #c42b1c;"));
+    errorLabel_->setProperty("errorState", true);
     rootLayout->addWidget(errorLabel_);
 
     connect(chooseSourceFileButton_, &QPushButton::clicked, this, &BackupPage::chooseSourceFile);

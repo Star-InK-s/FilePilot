@@ -104,8 +104,8 @@ add_library(filepilot_gui STATIC
     ui/pages/FileOrganizePage.h
     ui/pages/Pages.cpp
     ui/pages/Pages.h
-    ui/presenters/DuplicateTheme.cpp
-    ui/presenters/DuplicateTheme.h
+    ui/theme/ThemeStyleSheet.cpp
+    ui/theme/ThemeStyleSheet.h
     ui/theme/ThemeSnapshot.h
     ui/theme/ThemePalette.cpp
     ui/theme/ThemePalette.h

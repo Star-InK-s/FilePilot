@@ -213,6 +213,8 @@ private slots:
     void usesAccessibleTooltipQss();
     void usesValidFocusQss();
     void usesSelectionTextForSelectedStates();
+    void exposesGlobalSemanticRoles();
+    void usesModeColorsWhenClassicSystemColorsRemainLight();
 };
 
 class ThemeDetectorTest : public QObject
@@ -235,6 +237,7 @@ class MainWindowThemeSmokeTest : public QObject
 private slots:
     void appliesThemeToMainWindow();
     void refreshesWithoutRecursivePaletteLoop();
+    void stylesGlobalControlsAndRuntimeSwitches();
 };
 
 class DpiLayoutTest : public QObject

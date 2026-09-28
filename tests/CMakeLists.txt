@@ -159,3 +159,13 @@ add_test(
 set_tests_properties(filepilot_backup_ui_contract PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
 )
+
+add_executable(filepilot_theme_capture
+    ThemeSystemCapture.cpp
+)
+target_link_libraries(filepilot_theme_capture
+    PRIVATE
+        filepilot_gui
+        Qt6::Widgets
+)
+filepilot_enable_warnings(filepilot_theme_capture)

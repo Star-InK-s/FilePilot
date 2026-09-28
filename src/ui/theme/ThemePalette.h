@@ -12,6 +12,19 @@ public:
 
     static ThemePalette fromSnapshot(const ThemeSnapshot &snapshot);
 
+    QColor surfaceElevated() const;
+    QColor textDisabled() const;
+    QColor borderSubtle() const;
+    QColor disabledSurface() const;
+    QColor tableHeader() const;
+    QColor tableRow() const;
+    QColor tableAlternateRow() const;
+    QColor inputBackground() const;
+    QColor inputBorder() const;
+    QColor buttonBackground() const;
+    QColor buttonHover() const;
+    QColor buttonPressed() const;
+
     QColor accent() const;
     QColor accentHover() const;
     QColor accentHoverText() const;

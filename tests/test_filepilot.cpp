@@ -4,7 +4,7 @@
 #include "app/Application.h"
 #include "app/MainWindow.h"
 #include "platform/windows/WindowsThemeDetector.h"
-#include "ui/presenters/DuplicateTheme.h"
+#include "ui/theme/ThemeStyleSheet.h"
 #include "ui/theme/QtThemeApplier.h"
 #include "ui/theme/ThemePalette.h"
 #include "ui/theme/ThemeSnapshot.h"
@@ -2969,6 +2969,47 @@ void ThemePaletteTest::usesSelectionTextForSelectedStates()
     QVERIFY(palette.selectionText().name() != palette.textPrimary().name());
 }
 
+void ThemePaletteTest::exposesGlobalSemanticRoles()
+{
+    const ThemePalette light = ThemePalette::fromSnapshot(
+        themeSnapshot(ThemeMode::Light, QColor(QStringLiteral("#0078D4"))));
+    const ThemePalette highContrast = ThemePalette::fromSnapshot(
+        highContrastSelectionSnapshot());
+
+    QCOMPARE(light.surfaceElevated(), light.surface());
+    QCOMPARE(light.textDisabled(), light.disabledText());
+    QCOMPARE(light.borderSubtle(), light.border());
+    QCOMPARE(light.tableRow(), light.surface());
+    QCOMPARE(light.tableAlternateRow(), light.surfaceSecondary());
+    QCOMPARE(light.inputBackground(), light.control());
+    QCOMPARE(light.inputBorder(), light.border());
+    QCOMPARE(light.buttonBackground(), light.accent());
+    QCOMPARE(light.buttonHover(), light.accentHover());
+    QCOMPARE(light.buttonPressed(), light.accentPressed());
+
+    QCOMPARE(highContrast.surfaceElevated(), highContrast.surface());
+    QCOMPARE(highContrast.textDisabled(), highContrast.disabledText());
+    QCOMPARE(highContrast.borderSubtle(), highContrast.border());
+    QCOMPARE(highContrast.disabledSurface(), highContrast.controlHover());
+    QCOMPARE(highContrast.inputBorder(), highContrast.border());
+}
+
+void ThemePaletteTest::usesModeColorsWhenClassicSystemColorsRemainLight()
+{
+    ThemeSnapshot snapshot = themeSnapshot(
+        ThemeMode::Dark,
+        QColor(QStringLiteral("#7A3E9D")));
+    snapshot.background = QColor(QStringLiteral("#FFFFFF"));
+    snapshot.foreground = QColor(QStringLiteral("#000000"));
+    snapshot.buttonFace = QColor(QStringLiteral("#F0F0F0"));
+    snapshot.buttonText = QColor(QStringLiteral("#000000"));
+
+    const ThemePalette palette = ThemePalette::fromSnapshot(snapshot);
+    QCOMPARE(palette.background(), QColor(QStringLiteral("#202020")));
+    QCOMPARE(palette.textPrimary(), QColor(QStringLiteral("#F5F5F5")));
+    QVERIFY(contrastRatio(palette.textPrimary(), palette.background()) >= 4.5);
+}
+
 void ThemeDetectorTest::readsCurrentSnapshot()
 {
     WindowsThemeDetector detector;
@@ -3137,6 +3178,60 @@ void MainWindowThemeSmokeTest::refreshesWithoutRecursivePaletteLoop()
     detector.refreshNow();
     QCOMPARE(changedSpy.count(), 2);
     QVERIFY(!applier.isApplying());
+}
+
+void MainWindowThemeSmokeTest::stylesGlobalControlsAndRuntimeSwitches()
+{
+    MainWindow window(testApplication());
+    const QString styleSheet = window.styleSheet();
+
+    for (const QString &selector : {
+             QStringLiteral("QWidget#pageOrganize"),
+             QStringLiteral("QWidget#pageDuplicates"),
+             QStringLiteral("QWidget#pageBackup"),
+             QStringLiteral("QWidget#pageHistory"),
+             QStringLiteral("QWidget#pageSettings"),
+             QStringLiteral("QComboBox"),
+             QStringLiteral("QGroupBox"),
+             QStringLiteral("QTableView"),
+             QStringLiteral("QListView"),
+             QStringLiteral("QPushButton"),
+             QStringLiteral("QProgressBar"),
+             QStringLiteral("QDialog"),
+             QStringLiteral("QMenu"),
+             QStringLiteral("QStatusBar"),
+         }) {
+        QVERIFY2(styleSheet.contains(selector), qPrintable(selector));
+    }
+    QVERIFY(!styleSheet.contains(QRegularExpression(QStringLiteral("%\\d+"))));
+
+    auto *errorLabel =
+        window.findChild<QLabel *>(QStringLiteral("backupErrorLabel"));
+    QVERIFY(errorLabel != nullptr);
+    QVERIFY(errorLabel->property("errorState").toBool());
+    QVERIFY(errorLabel->styleSheet().isEmpty());
+
+    QWidget target;
+    QtThemeApplier applier(&target);
+    const ThemePalette light = ThemePalette::fromSnapshot(
+        themeSnapshot(ThemeMode::Light, QColor(QStringLiteral("#0078D4"))));
+    const ThemePalette dark = ThemePalette::fromSnapshot(
+        themeSnapshot(ThemeMode::Dark, QColor(QStringLiteral("#7A3E9D"))));
+
+    QVERIFY(applier.apply(light));
+    const QString lightSheet = target.styleSheet();
+    QVERIFY(lightSheet.contains(light.accent().name()));
+    QVERIFY(lightSheet.contains(light.background().name()));
+
+    QVERIFY(applier.apply(dark));
+    const QString darkSheet = target.styleSheet();
+    QVERIFY(darkSheet != lightSheet);
+    QVERIFY(darkSheet.contains(dark.accent().name()));
+    QVERIFY(darkSheet.contains(dark.background().name()));
+    QVERIFY(!darkSheet.contains(light.background().name()));
+    QCOMPARE(
+        target.palette().color(QPalette::Disabled, QPalette::Base),
+        dark.disabledSurface());
 }
 
 void DpiLayoutTest::keepsShellWithinViewport()

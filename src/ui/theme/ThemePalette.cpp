@@ -332,8 +332,8 @@ ThemePalette ThemePalette::fromSnapshot(const ThemeSnapshot &snapshot)
         ? ThemeMode::Light
         : snapshot.mode;
 
-    const QColor background = safeColor(snapshot.background, fallbackBackground(mode));
-    const QColor foreground = safeColor(snapshot.foreground, fallbackForeground(mode));
+    const QColor background = fallbackBackground(mode);
+    const QColor foreground = fallbackForeground(mode);
     const QColor surface = fallbackSurface(mode);
     const QColor surfaceSecondary = fallbackSurfaceSecondary(mode);
     const QColor control = fallbackControl(mode);
@@ -380,6 +380,19 @@ ThemePalette ThemePalette::fromSnapshot(const ThemeSnapshot &snapshot)
         accent,
         error);
 }
+
+QColor ThemePalette::surfaceElevated() const { return surface_; }
+QColor ThemePalette::textDisabled() const { return disabledText_; }
+QColor ThemePalette::borderSubtle() const { return border_; }
+QColor ThemePalette::disabledSurface() const { return controlHover_; }
+QColor ThemePalette::tableHeader() const { return background_; }
+QColor ThemePalette::tableRow() const { return surface_; }
+QColor ThemePalette::tableAlternateRow() const { return surfaceSecondary_; }
+QColor ThemePalette::inputBackground() const { return control_; }
+QColor ThemePalette::inputBorder() const { return border_; }
+QColor ThemePalette::buttonBackground() const { return accent_; }
+QColor ThemePalette::buttonHover() const { return accentHover_; }
+QColor ThemePalette::buttonPressed() const { return accentPressed_; }
 
 QColor ThemePalette::accent() const { return accent_; }
 QColor ThemePalette::accentHover() const { return accentHover_; }

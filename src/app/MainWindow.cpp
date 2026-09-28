@@ -5,7 +5,7 @@
 #include "ui/pages/DuplicateFilesPage.h"
 #include "ui/pages/FileOrganizePage.h"
 #include "ui/pages/Pages.h"
-#include "ui/presenters/DuplicateTheme.h"
+#include "ui/theme/ThemeStyleSheet.h"
 #include "ui/theme/QtThemeApplier.h"
 #include "platform/windows/WindowsThemeDetector.h"
 

@@ -1,4 +1,4 @@
-#include "ui/presenters/DuplicateTheme.h"
+#include "ui/theme/ThemeStyleSheet.h"
 
 #include "ui/theme/ThemePalette.h"
 
@@ -35,16 +35,26 @@ QString fluentStyleSheet(const ThemePalette &colors)
         }
         QMainWindow,
         QWidget#centralWidget,
+        QWidget#pageOrganize,
         QWidget#pageDuplicates,
-        QStackedWidget#pageStack {
+        QWidget#pageBackup,
+        QWidget#pageHistory,
+        QWidget#pageSettings,
+        QStackedWidget#pageStack,
+        QDialog {
             background: %1;
             color: %2;
         }
         QLabel {
             background: transparent;
+            color: %2;
         }
-        QLabel[errorState="true"] {
+        QLabel[errorState="true"],
+        QLabel#backupErrorLabel {
             color: %13;
+        }
+        QLabel:disabled {
+            color: %11;
         }
         QToolTip {
             background: %3;
@@ -99,7 +109,7 @@ QString fluentStyleSheet(const ThemePalette &colors)
         }
         QListWidget#navigation::item:selected {
             background: %10;
-            border-left: 3px solid %12;
+            border-left: 3px solid %22;
             color: %21;
         }
         QListWidget#navigation::item:focus {
@@ -107,10 +117,16 @@ QString fluentStyleSheet(const ThemePalette &colors)
             outline-offset: -2px;
         }
 
-        QFrame#globalProgressPanel {
+        QFrame#globalProgressPanel,
+        QFrame#organizePreviewPanel {
             background: %3;
             border: 0;
             border-top: %8 solid %4;
+        }
+        QFrame#organizePreviewPanel {
+            border-top: 0;
+            border: %8 solid %4;
+            border-radius: %9;
         }
         QFrame#duplicateSummaryPanel {
             background: transparent;
@@ -177,28 +193,62 @@ QString fluentStyleSheet(const ThemePalette &colors)
             selection-background-color: %10;
             selection-color: %21;
         }
-        QLineEdit:focus {
-            border: %20 solid %12;
-            padding: 4px 7px;
-        }
-        QLineEdit:disabled {
-            background: %7;
-            color: %11;
-        }
-
-        QPushButton {
+        QComboBox,
+        QAbstractSpinBox,
+        QTextEdit,
+        QPlainTextEdit {
             background: %6;
             color: %2;
             border: %8 solid %4;
             border-radius: %9;
+            padding: 5px 8px;
+            selection-background-color: %10;
+            selection-color: %21;
+        }
+        QLineEdit:focus {
+            border: %20 solid %12;
+            padding: 4px 7px;
+        }
+        QComboBox:focus,
+        QAbstractSpinBox:focus,
+        QTextEdit:focus,
+        QPlainTextEdit:focus {
+            border: %20 solid %12;
+            padding: 4px 7px;
+        }
+        QLineEdit:disabled,
+        QComboBox:disabled,
+        QAbstractSpinBox:disabled,
+        QTextEdit:disabled,
+        QPlainTextEdit:disabled {
+            background: %7;
+            color: %11;
+            border-color: %4;
+        }
+        QLineEdit:read-only,
+        QTextEdit:read-only,
+        QPlainTextEdit:read-only {
+            background: %3;
+        }
+
+        QPushButton {
+            background: %23;
+            color: %14;
+            border: %8 solid %22;
+            border-radius: %9;
             min-height: 30px;
             padding: 3px 12px;
+            font-weight: 600;
         }
         QPushButton:hover {
-            background: %7;
+            background: %24;
+            color: %18;
+            border-color: %24;
         }
         QPushButton:pressed {
-            background: %4;
+            background: %25;
+            color: %19;
+            border-color: %25;
         }
         QPushButton:focus {
             border: %20 solid %12;
@@ -210,21 +260,19 @@ QString fluentStyleSheet(const ThemePalette &colors)
             border-color: %4;
         }
         QPushButton#startDuplicateScanButton {
-            background: %12;
+            background: %23;
             color: %14;
-            border-color: %12;
-            font-weight: 600;
-            padding: 3px 16px;
+            border-color: %23;
         }
         QPushButton#startDuplicateScanButton:hover {
-            background: %15;
+            background: %24;
             color: %18;
-            border-color: %15;
+            border-color: %24;
         }
         QPushButton#startDuplicateScanButton:pressed {
-            background: %16;
+            background: %25;
             color: %19;
-            border-color: %16;
+            border-color: %25;
         }
         QPushButton#startDuplicateScanButton:disabled {
             background: %7;
@@ -240,8 +288,23 @@ QString fluentStyleSheet(const ThemePalette &colors)
             max-height: 4px;
         }
         QProgressBar::chunk {
-            background: %12;
+            background: %23;
             border-radius: %17;
+        }
+
+        QGroupBox {
+            background: %3;
+            color: %2;
+            border: %8 solid %4;
+            border-radius: %9;
+            margin-top: 10px;
+            padding-top: 8px;
+        }
+        QGroupBox::title {
+            subcontrol-origin: margin;
+            left: 10px;
+            padding: 0 4px;
+            color: %5;
         }
 
         QAbstractItemView::viewport {
@@ -258,14 +321,38 @@ QString fluentStyleSheet(const ThemePalette &colors)
             selection-color: %21;
             outline: 0;
         }
+        QListView,
+        QTreeView {
+            background: %3;
+            alternate-background-color: %1;
+            color: %2;
+            border: %8 solid %4;
+            border-radius: %9;
+            gridline-color: transparent;
+            selection-background-color: %10;
+            selection-color: %21;
+            outline: 0;
+        }
         QTableView::item {
             padding: 6px 8px;
             border: 0;
         }
-        QTableView::item:hover {
+        QListView::item,
+        QTreeView::item {
+            padding: 6px 8px;
+            border: 0;
+        }
+        QTableView::item:hover,
+        QListView::item:hover,
+        QTreeView::item:hover {
             background: %6;
         }
         QTableView::item:selected {
+            background: %10;
+            color: %21;
+        }
+        QListView::item:selected,
+        QTreeView::item:selected {
             background: %10;
             color: %21;
         }
@@ -279,6 +366,11 @@ QString fluentStyleSheet(const ThemePalette &colors)
         QHeaderView::section:hover {
             background: %6;
             color: %2;
+        }
+        QTableCornerButton::section {
+            background: %1;
+            border: 0;
+            border-bottom: %8 solid %4;
         }
 
         QTabWidget::pane {
@@ -301,7 +393,7 @@ QString fluentStyleSheet(const ThemePalette &colors)
         }
         QTabBar::tab:selected {
             color: %2;
-            border-bottom: 2px solid %12;
+            border-bottom: 2px solid %22;
         }
         QTabBar::tab:disabled {
             color: %11;
@@ -331,7 +423,10 @@ QString fluentStyleSheet(const ThemePalette &colors)
             border-radius: 5px;
         }
         QScrollBar::handle:vertical:hover {
-            background: %2;
+            background: %15;
+        }
+        QScrollBar::handle:vertical:pressed {
+            background: %16;
         }
         QScrollBar:horizontal {
             background: transparent;
@@ -344,7 +439,10 @@ QString fluentStyleSheet(const ThemePalette &colors)
             border-radius: 5px;
         }
         QScrollBar::handle:horizontal:hover {
-            background: %2;
+            background: %15;
+        }
+        QScrollBar::handle:horizontal:pressed {
+            background: %16;
         }
         QScrollBar::add-line,
         QScrollBar::sub-line {
@@ -354,6 +452,22 @@ QString fluentStyleSheet(const ThemePalette &colors)
         QScrollBar::add-page,
         QScrollBar::sub-page {
             background: transparent;
+        }
+
+        QMenu {
+            background: %3;
+            color: %2;
+            border: %8 solid %4;
+        }
+        QMenu::item {
+            padding: 5px 24px 5px 10px;
+        }
+        QMenu::item:selected {
+            background: %10;
+            color: %21;
+        }
+        QMenu::item:disabled {
+            color: %11;
         }
 
         QStatusBar {
@@ -367,12 +481,12 @@ QString fluentStyleSheet(const ThemePalette &colors)
         .arg(colors.surface().name())
         .arg(colors.border().name())
         .arg(colors.textSecondary().name())
-        .arg(colors.control().name())
-        .arg(colors.controlHover().name())
+        .arg(colors.inputBackground().name())
+        .arg(colors.disabledSurface().name())
         .arg(borderWidth)
         .arg(radius)
         .arg(colors.selection().name())
-        .arg(colors.disabledText().name())
+        .arg(colors.textDisabled().name())
         .arg(colors.focus().name())
         .arg(colors.error().name())
         .arg(colors.accentText().name())
@@ -382,7 +496,11 @@ QString fluentStyleSheet(const ThemePalette &colors)
         .arg(colors.accentHoverText().name())
         .arg(colors.accentPressedText().name())
         .arg(focusWidth)
-        .arg(colors.selectionText().name());
+        .arg(colors.selectionText().name())
+        .arg(colors.accent().name())
+        .arg(colors.buttonBackground().name())
+        .arg(colors.buttonHover().name())
+        .arg(colors.buttonPressed().name());
 }
 
 QIcon windowsGlyphIcon(const QWidget *context,
