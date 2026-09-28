@@ -21,3 +21,4 @@ Testing/
 .vscode/
 .idea/
 compiler_probe.*
+release/

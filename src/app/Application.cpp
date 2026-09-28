@@ -49,7 +49,7 @@ Application::Application(int &argc, char **argv, const QString &dataDirectory)
 {
     setApplicationName(QStringLiteral("FilePilot"));
     setApplicationDisplayName(QStringLiteral("FilePilot"));
-    setApplicationVersion(QStringLiteral("0.1.0"));
+    setApplicationVersion(QStringLiteral("1.0.0"));
     setOrganizationName(QStringLiteral("FilePilot"));
 
     logger_.log(LogLevel::Info,
