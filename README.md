@@ -113,6 +113,8 @@ cmake --preset windows-mingw-debug
 cmake --build --preset debug
 ```
 
+## Run
+
 Run the built application from the build tree:
 
 ```powershell
