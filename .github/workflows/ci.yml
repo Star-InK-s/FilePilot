@@ -51,4 +51,3 @@ jobs:
       - name: Test
         shell: pwsh
         run: ctest --preset release --output-on-failure
-
