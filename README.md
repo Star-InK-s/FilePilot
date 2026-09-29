@@ -113,7 +113,7 @@ cmake --preset windows-mingw-debug
 cmake --build --preset debug
 ```
 
-Run the application:
+Run the built application from the build tree:
 
 ```powershell
 .\build\windows-mingw-release\src\filepilot.exe
