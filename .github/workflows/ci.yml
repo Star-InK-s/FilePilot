@@ -22,7 +22,7 @@ jobs:
       - name: Install Qt 6 and MinGW
         uses: jurplel/install-qt-action@v4
         with:
-          version: "6.11.1"
+          version: "6.8.3"
           host: windows
           target: desktop
           arch: win64_mingw
@@ -51,3 +51,4 @@ jobs:
       - name: Test
         shell: pwsh
         run: ctest --preset release --output-on-failure
+
