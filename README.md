@@ -1,121 +1,171 @@
 # FilePilot
 
-FilePilot 是一个面向 Windows 11 的本地文件整理与备份桌面工具，使用 C++17、Qt 6 Widgets、SQLite、CMake 和 MinGW 64-bit 构建。
+Windows 11 local file organization and backup tool built with C++17, Qt 6 and SQLite.
 
-当前正式版本：**1.0.0**。
+![Version](https://img.shields.io/badge/version-v1.0.0-2ea44f)
+![Platform](https://img.shields.io/badge/platform-Windows%2011-0078D4)
+[![CI](https://github.com/Star-InK-s/FilePilot/actions/workflows/ci.yml/badge.svg)](https://github.com/Star-InK-s/FilePilot/actions/workflows/ci.yml)
+![Validation](https://img.shields.io/badge/build-CMake%20%2F%20CTest%20validated-2ea44f)
+![License](https://img.shields.io/badge/license-MIT-4c4c4c)
 
-## 主要功能
+![FilePilot light theme](docs/images/filepilot-light.png)
 
-- 文件扫描、统计、错误收集和取消
-- RuleEngine 文件分类与可配置分类规则
-- OrganizePlanner 整理预览和安全整理执行
-- 文件整理冲突处理：Skip、Overwrite、AutoRename
-- Cancellation 和失败恢复语义
-- SQLite Execution History
-- Duplicate Finder
-- Fluent UI
-- Windows Light / Dark 主题适配
-- Windows Accent 颜色适配
-- High Contrast 支持
-- DPI adaptation
-- Backup MVP
-  - 单文件 Backup
-  - 目录 Backup
-  - 空目录 Backup
-  - 嵌套目录和目录结构保持
-  - SHA-256 verification
-  - source preservation
-  - Skip、Overwrite、AutoRename
-  - BackupTask 生命周期、进度和取消
-  - Backup History
-  - Backup UI
+## Overview
 
-## 安全边界
+FilePilot is a local-first Windows desktop application for scanning, organizing, analyzing, and backing up local files. It combines a C++17 core, a Qt 6 Widgets interface, SQLite persistence, and Windows theme integration in a single desktop application.
 
-- Backup 在 staging tree 中复制并验证内容，验证通过后才发布最终目标。
-- 源文件不会被 Backup 删除或移动。
-- 目录递归覆盖明确不支持，避免危险的递归覆盖。
-- AutoRename 发布前重新检查最终名称，并使用不覆盖的发布操作。
-- 取消只停止尚未完成的工作，已经发布且验证成功的结果不会因为取消而被删除。
-- 极端 Windows TOCTOU 竞态仍属于 residual risk，不在 v1.0 声称完全消除。
+## Features
 
-## 环境要求
+- File scanning with type/category statistics, progress, errors, and cancellation
+- Rule-based classification and organization preview
+- Conflict policies for planned destinations
+- Duplicate detection by file size and SHA-256 content verification
+- Single-file and directory backup with source preservation
+- Backup staging, revalidation, SHA-256 verification, and final publish
+- SQLite execution and backup history persistence
+- Windows 11 Light, Dark, Accent, High Contrast, and DPI adaptation
+- Qt Test and CTest coverage for core, UI smoke, organization, duplicate, theme, and backup paths
+
+## Screenshots
+
+### Organization Preview
+
+![Organization preview](docs/images/filepilot-organize.png)
+
+### Duplicate Finder
+
+![Duplicate Finder](docs/images/filepilot-duplicate.png)
+
+### Backup
+
+![Backup preview](docs/images/filepilot-backup.png)
+
+### History
+
+![Execution history](docs/images/filepilot-history.png)
+
+### Theme Adaptation
+
+| Dark theme | Accent theme |
+| --- | --- |
+| ![FilePilot dark theme](docs/images/filepilot-dark.png) | ![FilePilot accent theme](docs/images/filepilot-accent.png) |
+
+## Architecture
+
+FilePilot keeps scanning, planning, execution, persistence, and presentation as separate layers:
+
+```text
+Scan -> Classification -> Organization Planning -> Preview -> Execution Core -> SQLite History
+Duplicate Finder -> Size/Hash Analysis -> Duplicate Groups
+Backup Plan -> Prevalidation -> Staging -> SHA-256 Verification -> Publish -> Backup History
+
+WindowsThemeDetector -> ThemeSnapshot -> ThemePalette -> ThemeStyleSheet/QtThemeApplier -> Pages
+```
+
+The Duplicate Finder and Backup flows are independent from organization planning. The theme pipeline follows the current Windows system state instead of maintaining a separate visual design system.
+
+## Safety Design
+
+- Backup preserves the source and copies through a staging tree.
+- Source and destination identities are revalidated before publish.
+- Backup content is verified with SHA-256 before final publication.
+- Reparse points, junctions, and unsafe path relationships are rejected.
+- Cancellation stops work that has not completed and preserves verified published results.
+- Conflict policies support Skip, Overwrite, and AutoRename flows.
+- History is persisted in SQLite for review.
+
+These checks reduce filesystem risk; they do not claim to eliminate every Windows TOCTOU race.
+
+## Tech Stack
+
+- C++17
+- Qt 6 Widgets, SQL, and Test
+- CMake and Ninja
+- MinGW 64-bit
+- SQLite
+- CTest
+- Windows API
+
+## Build
+
+Prerequisites:
 
 - Windows 11
-- C++17
-- Qt 6.5 或更高版本，验证版本为 Qt 6.11.1
+- Qt 6.5 or newer with the MinGW 64-bit kit
 - MinGW 64-bit
 - CMake 3.21+
-- Ninja 或 MinGW Makefiles
+- Ninja or MinGW Makefiles
 
-## 构建
-
-请根据本机 Qt 和 MinGW 安装位置替换路径。以下只是通用示例：
+The paths below are generic examples. Replace them with your local Qt and MinGW locations.
 
 ```powershell
 $env:Path = "C:\Qt\Tools\mingw1310_64\bin;C:\Qt\Tools\CMake_64\bin;C:\Qt\Tools\Ninja;C:\Qt\6.11.1\mingw_64\bin;" + $env:Path
+$env:CMAKE_PREFIX_PATH = "C:\Qt\6.11.1\mingw_64"
 
 cmake --preset windows-mingw-release
 cmake --build --preset release
 ```
 
-Debug 构建：
+Debug build:
 
 ```powershell
 cmake --preset windows-mingw-debug
 cmake --build --preset debug
 ```
 
-CMake 文件不包含用户个人绝对路径。
+Run the application:
 
-## 测试
+```powershell
+.\build\windows-mingw-release\src\filepilot.exe
+```
+
+For a deployable folder, use Qt `windeployqt` and include the Qt SQL SQLite plugin, MinGW runtime, `README.md`, `LICENSE`, and `THIRD_PARTY_NOTICES.md`. Build directories, CMake caches, logs, and test output must not be packaged.
+
+## Testing
 
 ```powershell
 ctest --preset debug --output-on-failure
 ctest --preset release --output-on-failure
 ```
 
-测试覆盖 Core、Organize、Duplicate、Theme/DPI、Backup Foundation、BackupExecutor、Directory Backup、BackupTask、Backup History 和 Backup UI smoke。
+The v1.0.0 validation suite reports 185 passed, 0 failed, and 3 skipped QtTest cases. This is a recorded v1.0.0 validation result, not a guarantee for every future environment. Current local verification also passes all 15 CTest targets in both Debug and Release configurations.
 
-## 运行程序
+## Download
 
-源码构建：
+Download [`FilePilot-v1.0.0-Windows-x64.zip`](https://github.com/Star-InK-s/FilePilot/releases/tag/v1.0.0) from GitHub Releases.
 
-```powershell
-.\build\windows-mingw-release\src\filepilot.exe
-```
-
-正式目录构建：
-
-```powershell
-.\release\FilePilot-v1.0.0\FilePilot.exe
-```
-
-## 发布目录
-
-正式 ZIP/目录形式的发布包位于：
+SHA-256:
 
 ```text
-release/FilePilot-v1.0.0/
+5ADBAE3455EC8DDD3141DEEA7DD4E866AA2518CD9F5591DC7AB38BF79A58349E
 ```
 
-发布目录包含 `FilePilot.exe`、Qt runtime、MinGW runtime、Qt plugins、SQLite plugin、README、LICENSE 和第三方声明。`build/`、`.git/`、测试输出、CMake cache、源码和临时文件不应放入发布目录。
+The ZIP is a portable Windows application bundle and includes the Qt and MinGW runtime files required by the current release.
 
-使用 Qt 提供的 `windeployqt.exe` 部署 Qt runtime 和 plugins。SQLite 通过 Qt SQL SQLite plugin 提供。
+## Known Limitations
 
-## 已知限制
+- No incremental backup.
+- No cloud synchronization.
+- No scheduled backup.
+- No network backup.
+- No advanced backup version chain.
+- No duplicate auto-delete.
+- No Undo.
+- The v1.0.0 organization UI exposes scanning, planning, preview, and confirmation, while the end-to-end Execute button remains disabled.
+- A successful backup can finish while history persistence reports an SQLite `NOT NULL` error when the backup error message is empty.
 
-- 目录递归覆盖未实现。
-- 增量备份未实现。
-- 云同步未实现。
-- 版本链未实现。
-- 计划任务未实现。
-- 目录 overwrite 明确不支持。
-- 极端 Windows TOCTOU 仍属于 residual risk。
-- 中文路径下 Qt `moc` 是开发构建环境限制，建议开发构建目录使用 ASCII 路径。
-- 当前 v1.0 使用 Windows 本地文件系统。
-- 尚未提供 MSI、NSIS 或其他安装器；当前交付形式是 ZIP/目录。
+## Roadmap
+
+Possible future directions:
+
+- Enable end-to-end organization execution from the v1 UI.
+- Add regression coverage for successful backup-history persistence.
+- Incremental and scheduled backup policies.
+- Safer duplicate review and cleanup workflows.
+- Undo and recovery assistance for completed organization runs.
 
 ## License
 
-MIT。第三方组件和调研来源见 `THIRD_PARTY_NOTICES.md`。
+FilePilot is released under the [MIT License](LICENSE).
+
+Third-party components and source provenance are documented in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
