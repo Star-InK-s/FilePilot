@@ -8,6 +8,7 @@ cmake_install.cmake
 CTestTestfile.cmake
 Testing/
 *.user
+*.user.*
 *.autosave
 *.log
 *.obj

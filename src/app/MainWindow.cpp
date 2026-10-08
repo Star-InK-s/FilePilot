@@ -189,7 +189,7 @@ QListWidget *MainWindow::buildNavigation()
         unsigned short glyph;
         QStyle::StandardPixmap fallback;
     } entries[] = {
-        {QStringLiteral("文件整理"), 0xE838, QStyle::SP_DirOpenIcon},
+        {QStringLiteral("文件管理"), 0xE838, QStyle::SP_DirOpenIcon},
         {QStringLiteral("重复文件"), 0xE8C8, QStyle::SP_FileDialogDetailedView},
         {QStringLiteral("备份"), 0xE74E, QStyle::SP_DriveHDIcon},
         {QStringLiteral("历史记录"), 0xE81C, QStyle::SP_FileDialogContentsView},
@@ -203,6 +203,12 @@ QListWidget *MainWindow::buildNavigation()
         item->setData(Qt::UserRole + 1, static_cast<int>(entry.fallback));
         item->setSizeHint(QSize(item->sizeHint().width(), 40));
         navigation->addItem(item);
+    }
+
+    // Advanced pages stay available to existing tests and future work, but the
+    // simplified v1 workflow starts with the file scan page only.
+    for (int row = 1; row < navigation->count(); ++row) {
+        navigation->item(row)->setHidden(true);
     }
 
     return navigation;

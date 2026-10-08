@@ -51,6 +51,23 @@ QVariant FileTableModel::data(const QModelIndex &index, const int role) const
         }
     }
 
+    if (role == SortRole) {
+        switch (index.column()) {
+        case FileName:
+            return file.fileName.toCaseFolded();
+        case Type:
+            return typeLabel(file);
+        case Size:
+            return file.sizeBytes;
+        case ModifiedTime:
+            return file.modifiedUtc.toMSecsSinceEpoch();
+        case Path:
+            return file.absolutePath.toCaseFolded();
+        default:
+            return {};
+        }
+    }
+
     if (role == Qt::ToolTipRole) {
         return file.absolutePath;
     }
@@ -136,9 +153,20 @@ QString FileTableModel::formatFileSize(const qint64 sizeBytes)
 
 QString FileTableModel::typeLabel(const FileInfo &file)
 {
-    return file.extension.isEmpty()
-        ? QStringLiteral("文件")
-        : file.extension.toUpper() + QStringLiteral(" 文件");
+    const QString category = file.category.trimmed();
+    if (category.compare(QStringLiteral("Images"), Qt::CaseInsensitive) == 0) {
+        return QStringLiteral("图片");
+    }
+    if (category.compare(QStringLiteral("Videos"), Qt::CaseInsensitive) == 0) {
+        return QStringLiteral("视频");
+    }
+    if (category.compare(QStringLiteral("Documents"), Qt::CaseInsensitive) == 0) {
+        return QStringLiteral("文档");
+    }
+    if (category.compare(QStringLiteral("Archives"), Qt::CaseInsensitive) == 0) {
+        return QStringLiteral("压缩包");
+    }
+    return QStringLiteral("其他");
 }
 
 } // namespace FilePilot

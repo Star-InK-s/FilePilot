@@ -12,6 +12,8 @@ class QThread;
 
 namespace FilePilot {
 
+// ScanTask keeps the UI responsive: it owns the worker thread and forwards
+// ScanService progress and results through Qt signals.
 class ScanTask : public QObject
 {
     Q_OBJECT

@@ -51,6 +51,8 @@ struct ScanStatistics {
     QHash<QString, qint64> extensionCounts;
 };
 
+// ScanResult is the complete value produced by one directory scan: file data,
+// summary statistics, recoverable errors, and final completion state.
 struct ScanResult {
     QString rootPath;
     std::vector<FileInfo> files;
@@ -64,6 +66,8 @@ struct ScanResult {
 using ScanProgressCallback = std::function<void(const ScanProgress &)>;
 using ScanErrorCallback = std::function<void(const ScanError &)>;
 
+// ScanService only traverses directories and collects file facts. Task
+// lifecycle and UI updates stay outside this class.
 class ScanService
 {
 public:

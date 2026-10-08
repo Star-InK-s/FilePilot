@@ -16,6 +16,19 @@ private slots:
     void appError();
 };
 
+class BasicFileOperationsTest : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void copiesFile();
+    void movesFile();
+    void removesFile();
+    void reportsMissingSource();
+    void rejectsExistingTarget();
+    void reportsMissingTargetDirectory();
+};
+
 class SettingsServiceTest : public QObject
 {
     Q_OBJECT
@@ -172,6 +185,7 @@ class FileTableModelTest : public QObject
 private slots:
     void exposesRowsColumnsAndHeaders();
     void formatsFileRows();
+    void classifiesDisplayTypesAndSortValues();
 };
 
 class FileOrganizePageTest : public QObject
@@ -181,6 +195,9 @@ class FileOrganizePageTest : public QObject
 private slots:
     void scansAndDisplaysResults();
     void categorySummaryShowsAllCategories();
+    void filtersFileNamesCaseInsensitively();
+    void sortsByFileNameTypeAndNumericSize();
+    void selectsMultipleRowsForOperations();
     void generatesPreviewAndConfirmsWithoutFilesystemChanges();
     void mapsExecutionResultStatesToUi();
     void invalidatesPlanWhenTargetRootChanges();

@@ -6,12 +6,14 @@
 #include "core/organize/OrganizePlan.h"
 #include "core/tasks/ScanTask.h"
 
+#include <QStringList>
 #include <QWidget>
 
 class QLabel;
 class QLineEdit;
 class QPushButton;
 class QProgressBar;
+class QSortFilterProxyModel;
 class QTableView;
 
 namespace FilePilot {
@@ -38,6 +40,9 @@ public slots:
     void cancelPlan();
     void startExecution();
     void cancelExecution();
+    void copySelectedFiles();
+    void moveSelectedFiles();
+    void deleteSelectedFiles();
 
 signals:
     void taskStateChanged(FilePilot::TaskState state);
@@ -76,12 +81,19 @@ private:
     void invalidatePlan(const QString &reason);
     void resetExecutionPresentation();
     bool planMatchesCurrentInputs() const;
+    QStringList selectedFilePaths() const;
+    void runTargetOperation(bool moveFiles);
 
     Application &application_;
     ScanTask scanTask_;
     OrganizeExecutionTask executionTask_;
     FileTableModel *fileModel_ = nullptr;
+    QSortFilterProxyModel *fileProxyModel_ = nullptr;
     QLineEdit *directoryEdit_ = nullptr;
+    QLineEdit *searchEdit_ = nullptr;
+    QPushButton *copyFilesButton_ = nullptr;
+    QPushButton *moveFilesButton_ = nullptr;
+    QPushButton *deleteFilesButton_ = nullptr;
     QPushButton *chooseDirectoryButton_ = nullptr;
     QPushButton *scanButton_ = nullptr;
     QLabel *fileCountValueLabel_ = nullptr;

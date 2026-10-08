@@ -8,11 +8,17 @@
 
 namespace FilePilot {
 
+// QAbstractTableModel lets QTableView ask for rows, columns, headers, and cell
+// values without storing widgets or knowing how files were scanned.
 class FileTableModel : public QAbstractTableModel
 {
     Q_OBJECT
 
 public:
+    enum Role {
+        SortRole = Qt::UserRole,
+    };
+
     enum Column {
         FileName = 0,
         Type,
@@ -37,10 +43,9 @@ public:
     const std::vector<FileInfo> &files() const;
 
     static QString formatFileSize(qint64 sizeBytes);
-
-private:
     static QString typeLabel(const FileInfo &file);
 
+private:
     std::vector<FileInfo> files_;
 };
 

@@ -97,6 +97,8 @@ bool ScanTask::start(const QString &rootPath)
     cancellationToken_ = ScanCancellationToken();
     setState(TaskState::Preparing);
 
+    // The worker calls ScanService and reports through signals; it never
+    // updates QWidget state directly.
     auto *thread = QThread::create([this, rootPath] {
         qint64 totalErrorCount = 0;
         qint64 flushedErrorCount = 0;

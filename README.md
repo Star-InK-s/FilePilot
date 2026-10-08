@@ -1,176 +1,240 @@
 # FilePilot
 
-使用 C++17、Qt 6 和 SQLite 构建的 Windows 11 本地文件整理与备份工具。
+一个使用 C++ / Qt 开发的 Windows 桌面文件管理工具，用于扫描、查看、搜索和整理本地文件。
 
-![Version](https://img.shields.io/badge/version-v1.0.0-2ea44f)
-![Platform](https://img.shields.io/badge/platform-Windows%2011-0078D4)
-[![CI](https://github.com/Star-InK-s/FilePilot/actions/workflows/ci.yml/badge.svg)](https://github.com/Star-InK-s/FilePilot/actions/workflows/ci.yml)
-![Validation](https://img.shields.io/badge/build-CMake%20%2F%20CTest%20validated-2ea44f)
-![License](https://img.shields.io/badge/license-MIT-4c4c4c)
+## About This Project / 项目说明
 
-![FilePilot 浅色主题](docs/images/filepilot-light.png)
+FilePilot is a learning-oriented Windows desktop file management application developed by a sophomore computer science student.
 
-## 项目简介
+FilePilot 是一名大二计算机科学与技术专业学生的 C++ / Qt 学习与实践项目。项目通过一个完整的 Windows 桌面应用，练习 C++、Qt Widgets、Model/View、signal / slot、文件系统操作、CMake 和 Git。
 
-FilePilot 是一个本地优先的 Windows 桌面应用，用于扫描、整理、分析和备份本地文件。项目采用 C++17 核心逻辑、Qt 6 Widgets 界面、SQLite 数据持久化，并适配 Windows 11 系统主题。
+这个项目的目标不是提供企业级文件管理方案，而是完成一个功能完整、结构清楚、可以理解和维护的桌面应用。当前 v1 有意保持较小的功能范围，重点放在真正会使用的核心文件操作上。
 
-## 主要功能
+## Features / 当前功能
 
-- 文件扫描，显示类型与分类统计、进度、错误和取消状态
-- RuleEngine 规则分类与整理预览
-- 目标路径冲突策略：Skip、Overwrite、AutoRename
-- 通过文件大小和 SHA-256 内容校验检测重复文件
-- 单文件和目录 Backup，并保留源文件
-- Backup staging、重新校验、SHA-256 验证和最终发布
-- SQLite 保存执行历史和备份历史
-- Windows 11 浅色、深色、Accent、High Contrast 和 DPI 适配
-- Qt Test 与 CTest 覆盖核心逻辑、UI smoke、整理、重复文件、主题和 Backup 路径
+- 选择文件夹
+- 扫描文件
+- 显示文件名、类型、大小、修改时间和路径
+- 图片、视频、文档、压缩包、其他分类
+- 按文件名搜索，不区分大小写
+- 按文件名、类型和大小排序
+- 单选和多选文件
+- 复制文件
+- 移动文件
+- 删除文件
+- 删除确认
+- 文件不存在、目标路径不存在、目标文件已存在、权限不足等基础错误提示
+- 移动和删除后刷新当前文件列表
 
-## 界面截图
+## Screenshots / 界面截图
 
-### 整理预览
+### 主界面
 
-![整理预览](docs/images/filepilot-organize.png)
+完成扫描并显示文件列表：
 
-### 重复文件
+![FilePilot 主界面](docs/screenshots/filepilot-main.png)
 
-![重复文件检测](docs/images/filepilot-duplicate.png)
+### 排序
 
-### 备份
+按文件大小排序后的列表：
 
-![备份预览](docs/images/filepilot-backup.png)
+![FilePilot 文件排序](docs/screenshots/filepilot-sorted.png)
 
-### 历史记录
+### 搜索和多选
 
-![执行历史](docs/images/filepilot-history.png)
+搜索文件并多选后显示文件操作区域：
 
-### 主题适配
+![FilePilot 搜索和多选](docs/screenshots/filepilot-selection.png)
 
-| 深色主题 | Accent 主题 |
-| --- | --- |
-| ![FilePilot 深色主题](docs/images/filepilot-dark.png) | ![FilePilot Accent 主题](docs/images/filepilot-accent.png) |
+这些截图使用真实构建的 FilePilot 程序和测试目录生成，没有使用 AI 生成的软件界面。
 
-## 系统架构
-
-FilePilot 将扫描、规划、执行、持久化和界面展示划分为独立层次：
-
-```text
-扫描 -> 分类 -> 整理规划 -> 预览 -> 执行核心 -> SQLite 历史
-
-重复文件检测 -> 大小/Hash 分析 -> 重复文件分组
-
-Backup Plan -> 预校验 -> Staging -> SHA-256 验证 -> 发布 -> Backup History
-
-WindowsThemeDetector -> ThemeSnapshot -> ThemePalette
--> ThemeStyleSheet/QtThemeApplier -> 各功能页面
-```
-
-重复文件检测和 Backup 是独立流程。主题模块读取当前 Windows 系统状态，不维护另一套脱离系统的设计体系。
-
-## 安全设计
-
-- Backup 保留源文件，并通过 staging tree 复制内容。
-- 发布前重新验证源文件和目标路径身份。
-- 最终发布前使用 SHA-256 验证 Backup 内容。
-- 拒绝 Reparse Point、Junction 和不安全的路径嵌套关系。
-- 取消操作会停止尚未完成的工作，并保留已经验证和发布的正确结果。
-- 冲突策略支持 Skip、Overwrite 和 AutoRename。
-- 历史结果写入 SQLite，便于后续检查。
-
-这些机制用于降低文件系统风险，但不声称能够消除所有 Windows TOCTOU 竞态。
-
-## 技术栈
+## Tech Stack / 技术栈
 
 - C++17
-- Qt 6 Widgets、SQL 和 Test
-- CMake 与 Ninja
+- Qt 6
+- Qt Widgets
+- CMake
+- Git
 - MinGW 64-bit
-- SQLite
-- CTest
-- Windows API
+- Qt Test / CTest
 
-## 构建
+当前 CMake 工程仍保留以前开发的 Qt SQL、Backup、Duplicate 等模块，因此构建时仍会链接 Qt SQL。这些模块不属于当前 v1 用户主流程。
+
+## Architecture / 当前架构
+
+文件扫描和列表：
+
+```text
+MainWindow
+    ↓
+FileOrganizePage
+    ↓
+ScanTask
+    ↓
+ScanService
+    ↓
+ScanResult
+    ↓
+FileTableModel
+    ↓
+QTableView
+```
+
+搜索和排序：
+
+```text
+FileTableModel
+    ↓
+QSortFilterProxyModel
+    ↓
+QTableView
+```
+
+基础文件操作：
+
+```text
+FileOrganizePage
+    ↓
+BasicFileOperations
+    ├── copy()
+    ├── move()
+    └── remove()
+```
+
+`ScanTask` 管理后台扫描生命周期，并通过 Qt signal / slot 把进度、错误和结果发送给界面。`ScanService` 只负责遍历目录和收集文件信息。`FileTableModel` 将 `std::vector<FileInfo>` 提供给 Qt Model / View。`BasicFileOperations` 只实现 v1 需要的基础文件操作。
+
+## Project Structure / 项目结构
+
+```text
+src/app/
+    程序入口和 MainWindow
+
+src/ui/pages/
+    文件扫描、搜索、排序和操作页面
+
+src/ui/models/
+    Qt Model / View 文件数据模型
+
+src/core/scan/
+    文件遍历和扫描结果
+
+src/core/tasks/
+    ScanTask 后台扫描任务
+
+src/core/filesystem/
+    BasicFileOperations 和文件系统辅助代码
+
+src/core/
+    保留的高级模块源码
+
+tests/
+    Qt Test 和 CTest 测试
+
+resources/
+    图标和 Qt 资源
+
+docs/
+    项目截图和文档
+```
+
+## Build / 构建
 
 环境要求：
 
-- Windows 11
-- Qt 6.5 或更高版本，并安装 MinGW 64-bit kit
+- Windows 10 或 Windows 11
+- Qt 6.5 或更高版本
 - MinGW 64-bit
 - CMake 3.21 或更高版本
-- Ninja 或 MinGW Makefiles
+- Ninja
 
-以下路径只是通用示例，请替换为本机 Qt 和 MinGW 安装位置。
+请先把本机 Qt、MinGW 和 CMake 的可执行文件目录加入 `PATH`，并设置 Qt 的 `CMAKE_PREFIX_PATH`。
 
-```powershell
-$env:Path = "C:\Qt\Tools\mingw1310_64\bin;C:\Qt\Tools\CMake_64\bin;C:\Qt\Tools\Ninja;C:\Qt\6.11.1\mingw_64\bin;" + $env:Path
-$env:CMAKE_PREFIX_PATH = "C:\Qt\6.11.1\mingw_64"
-
-cmake --preset windows-mingw-release
-cmake --build --preset release
-```
-
-Debug 构建：
+Debug：
 
 ```powershell
 cmake --preset windows-mingw-debug
 cmake --build --preset debug
 ```
 
-## 运行
+Release：
 
-从构建目录启动程序：
+```powershell
+cmake --preset windows-mingw-release
+cmake --build --preset release
+```
+
+运行：
 
 ```powershell
 .\build\windows-mingw-release\src\filepilot.exe
 ```
 
-如果需要生成可交付目录，请使用 Qt `windeployqt`，并包含 Qt SQL SQLite plugin、MinGW runtime、`README.md`、`LICENSE` 和 `THIRD_PARTY_NOTICES.md`。不要将构建目录、CMake cache、日志或测试输出打包到发布目录。
-
-## 测试
+## Testing / 测试
 
 ```powershell
 ctest --preset debug --output-on-failure
 ctest --preset release --output-on-failure
 ```
 
-v1.0.0 验证记录为 185 passed、0 failed、3 skipped。该数字是 v1.0.0 的记录结果，不代表所有未来环境都保证相同结果。当前本地复验中，Debug 和 Release 的 15 个 CTest targets 均已通过。
-
-## 下载
-
-从 GitHub Releases 下载 [`FilePilot-v1.0.0-Windows-x64.zip`](https://github.com/Star-InK-s/FilePilot/releases/tag/v1.0.0)。
-
-SHA-256：
+当前测试结果：
 
 ```text
-5ADBAE3455EC8DDD3141DEEA7DD4E866AA2518CD9F5591DC7AB38BF79A58349E
+Debug CTest: 15/15 passed
+Release CTest: 15/15 passed
 ```
 
-该 ZIP 是 Windows x64 便携式应用包，包含当前版本所需的 Qt 和 MinGW runtime。
+测试覆盖文件扫描、分类、搜索、排序、多选、复制、移动、删除和基础错误路径。
 
-## 已知限制
+## Current Scope / 当前范围
 
-- 尚未支持增量 Backup。
-- 尚未支持云同步。
-- 尚未支持计划任务 Backup。
-- 尚未支持网络 Backup。
-- 尚未支持高级 Backup 版本链。
-- 不提供重复文件自动删除。
-- 不提供 Undo。
-- v1.0.0 整理页面提供扫描、规划、预览和确认，但端到端 Execute 按钮仍处于禁用状态。
-- Backup 成功后，当错误信息为空时，Backup History 可能因 SQLite `NOT NULL` 约束而持久化失败。
+当前 v1 的重点是：
 
-## 路线图
+```text
+选择文件夹
+    ↓
+扫描
+    ↓
+查看、分类、搜索和排序
+    ↓
+选择文件
+    ↓
+复制、移动或删除
+```
 
-未来可能的方向：
+项目有意保持功能较少，方便阅读、调试和在面试中解释。
 
-- 在 v1 UI 中开放端到端整理执行。
-- 补充成功 Backup History 持久化回归测试。
-- 增量和计划任务 Backup。
-- 更安全的重复文件检查与清理流程。
-- 已完成整理操作的 Undo 和恢复辅助。
+## Known Limitations / 已知限制
 
-## 许可证
+- 跨磁盘移动暂不使用 Copy + Delete fallback。
+- 不提供 Undo、回收站或删除恢复。
+- 批量文件操作不是原子操作，失败时不会自动回滚已经成功的项目。
+- 重复文件检测、Hash、Backup 和 SQLite 历史记录不属于当前 v1 主流程。
+- 高级自动整理规则和复杂任务系统仍保留在源码中，但不是当前学习重点。
+
+这些是当前版本的范围控制，不代表功能缺陷或永久不会扩展。
+
+## Learning Goals / 学习目标
+
+通过这个项目实践：
+
+- C++ 基础和文件系统操作
+- Qt Widgets 桌面界面
+- Qt Model / View
+- Signals and Slots
+- 文件扫描、搜索、排序和基础文件操作
+- CMake 构建
+- Git 和 GitHub 项目发布
+- Debug / Release 和自动化测试
+
+## Future Improvements / 后续计划
+
+- 根据实际使用体验优化 UI
+- 完善跨磁盘移动
+- 完善批量操作的错误反馈
+- 根据实际需要逐步扩展功能
+
+## License
 
 FilePilot 使用 [MIT License](LICENSE) 发布。
 
-第三方组件和代码来源说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+第三方组件说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

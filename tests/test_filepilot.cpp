@@ -17,6 +17,7 @@
 #include "core/organize/OrganizePlanner.h"
 #include "core/logging/LogManager.h"
 #include "core/model/AppError.h"
+#include "core/filesystem/BasicFileOperations.h"
 #include "core/model/FileInfo.h"
 #include "core/model/TaskState.h"
 #include "core/scan/ScanService.h"
@@ -1812,6 +1813,131 @@ void ScanServiceTest::respectsCancellation()
     QCOMPARE(result.statistics.fileCount, 0);
 }
 
+void BasicFileOperationsTest::copiesFile()
+{
+    QTemporaryDir sourceDirectory;
+    QTemporaryDir targetDirectory;
+    QVERIFY(sourceDirectory.isValid());
+    QVERIFY(targetDirectory.isValid());
+
+    const QString source =
+        QDir(sourceDirectory.path()).filePath(QStringLiteral("test.txt"));
+    const QString target =
+        QDir(targetDirectory.path()).filePath(QStringLiteral("test.txt"));
+    QVERIFY(writeFile(source, QByteArrayLiteral("basic-copy")));
+
+    QString error;
+    QVERIFY(BasicFileOperations::copy(source, targetDirectory.path(), error));
+    QVERIFY(error.isEmpty());
+    QVERIFY(QFileInfo::exists(source));
+    QVERIFY(QFileInfo::exists(target));
+
+    QFile targetFile(target);
+    QVERIFY(targetFile.open(QIODevice::ReadOnly));
+    QCOMPARE(targetFile.readAll(), QByteArrayLiteral("basic-copy"));
+}
+
+void BasicFileOperationsTest::movesFile()
+{
+    QTemporaryDir sourceDirectory;
+    QTemporaryDir targetDirectory;
+    QVERIFY(sourceDirectory.isValid());
+    QVERIFY(targetDirectory.isValid());
+
+    const QString source =
+        QDir(sourceDirectory.path()).filePath(QStringLiteral("test.txt"));
+    const QString target =
+        QDir(targetDirectory.path()).filePath(QStringLiteral("test.txt"));
+    QVERIFY(writeFile(source, QByteArrayLiteral("basic-move")));
+
+    QString error;
+    QVERIFY(BasicFileOperations::move(source, targetDirectory.path(), error));
+    QVERIFY(error.isEmpty());
+    QVERIFY(!QFileInfo::exists(source));
+    QVERIFY(QFileInfo::exists(target));
+}
+
+void BasicFileOperationsTest::removesFile()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+
+    const QString source =
+        QDir(directory.path()).filePath(QStringLiteral("test.txt"));
+    QVERIFY(writeFile(source, QByteArrayLiteral("basic-remove")));
+
+    QString error;
+    QVERIFY(BasicFileOperations::remove(source, error));
+    QVERIFY(error.isEmpty());
+    QVERIFY(!QFileInfo::exists(source));
+}
+
+void BasicFileOperationsTest::reportsMissingSource()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+
+    const QString missing =
+        QDir(directory.path()).filePath(QStringLiteral("missing.txt"));
+    QString error;
+
+    QVERIFY(!BasicFileOperations::copy(missing, directory.path(), error));
+    QVERIFY(error.contains(QStringLiteral("文件不存在")));
+    QVERIFY(!BasicFileOperations::move(missing, directory.path(), error));
+    QVERIFY(error.contains(QStringLiteral("文件不存在")));
+    QVERIFY(!BasicFileOperations::remove(missing, error));
+    QVERIFY(error.contains(QStringLiteral("文件不存在")));
+}
+
+void BasicFileOperationsTest::rejectsExistingTarget()
+{
+    QTemporaryDir sourceDirectory;
+    QTemporaryDir targetDirectory;
+    QVERIFY(sourceDirectory.isValid());
+    QVERIFY(targetDirectory.isValid());
+
+    const QString source =
+        QDir(sourceDirectory.path()).filePath(QStringLiteral("test.txt"));
+    const QString target =
+        QDir(targetDirectory.path()).filePath(QStringLiteral("test.txt"));
+    QVERIFY(writeFile(source, QByteArrayLiteral("source")));
+    QVERIFY(writeFile(target, QByteArrayLiteral("existing")));
+
+    QString error;
+    QVERIFY(!BasicFileOperations::copy(source, targetDirectory.path(), error));
+    QVERIFY(error.contains(QStringLiteral("目标文件已存在")));
+    QVERIFY(QFileInfo::exists(source));
+
+    QVERIFY(!BasicFileOperations::move(source, targetDirectory.path(), error));
+    QVERIFY(error.contains(QStringLiteral("目标文件已存在")));
+    QVERIFY(QFileInfo::exists(source));
+
+    QFile targetFile(target);
+    QVERIFY(targetFile.open(QIODevice::ReadOnly));
+    QCOMPARE(targetFile.readAll(), QByteArrayLiteral("existing"));
+}
+
+void BasicFileOperationsTest::reportsMissingTargetDirectory()
+{
+    QTemporaryDir sourceDirectory;
+    QVERIFY(sourceDirectory.isValid());
+
+    const QString source =
+        QDir(sourceDirectory.path()).filePath(QStringLiteral("test.txt"));
+    const QString missingTarget =
+        QDir(sourceDirectory.path()).filePath(QStringLiteral("missing-target"));
+    QVERIFY(writeFile(source, QByteArrayLiteral("source")));
+
+    QString error;
+    QVERIFY(!BasicFileOperations::copy(source, missingTarget, error));
+    QVERIFY(error.contains(QStringLiteral("目标路径不存在")));
+    QVERIFY(QFileInfo::exists(source));
+
+    QVERIFY(!BasicFileOperations::move(source, missingTarget, error));
+    QVERIFY(error.contains(QStringLiteral("目标路径不存在")));
+    QVERIFY(QFileInfo::exists(source));
+}
+
 void SettingsServiceTest::storesValuesInIniFile()
 {
     QTemporaryDir directory;
@@ -2072,26 +2198,70 @@ void FileTableModelTest::formatsFileRows()
     first.extension = QStringLiteral("pdf");
     first.sizeBytes = 1536;
     first.modifiedUtc = QDateTime::fromMSecsSinceEpoch(0, QTimeZone::UTC);
+    first.category = QStringLiteral("Documents");
 
     FileInfo second;
     second.absolutePath = QStringLiteral("C:/Data/notes");
     second.fileName = QStringLiteral("notes");
     second.extension = QString();
     second.sizeBytes = 0;
+    second.category = QStringLiteral("Others");
 
     FileTableModel model;
     model.setFiles({first, second});
 
     QCOMPARE(model.rowCount(), 2);
     QCOMPARE(model.data(model.index(0, 0)).toString(), QStringLiteral("report.pdf"));
-    QCOMPARE(model.data(model.index(0, 1)).toString(), QStringLiteral("PDF 文件"));
+    QCOMPARE(model.data(model.index(0, 1)).toString(), QStringLiteral("文档"));
     QCOMPARE(model.data(model.index(0, 2)).toString(), QStringLiteral("1.5 KB"));
-    QCOMPARE(model.data(model.index(1, 1)).toString(), QStringLiteral("文件"));
+    QCOMPARE(model.data(model.index(1, 1)).toString(), QStringLiteral("其他"));
     QCOMPARE(model.data(model.index(1, 4)).toString(), QStringLiteral("C:/Data/notes"));
     QCOMPARE(model.data(model.index(0, 4), Qt::ToolTipRole).toString(),
              QStringLiteral("C:/Data/report.pdf"));
     QCOMPARE(FileTableModel::formatFileSize(0), QStringLiteral("0 B"));
 }
+void FileTableModelTest::classifiesDisplayTypesAndSortValues()
+{
+    const QStringList categories{
+        QStringLiteral("Images"),
+        QStringLiteral("Videos"),
+        QStringLiteral("Documents"),
+        QStringLiteral("Archives"),
+        QStringLiteral("Others"),
+    };
+    const QStringList expectedTypes{
+        QStringLiteral("图片"),
+        QStringLiteral("视频"),
+        QStringLiteral("文档"),
+        QStringLiteral("压缩包"),
+        QStringLiteral("其他"),
+    };
+
+    std::vector<FileInfo> files;
+    for (int index = 0; index < categories.size(); ++index) {
+        FileInfo file;
+        file.absolutePath = QStringLiteral("C:/Data/file-%1").arg(index);
+        file.fileName = QStringLiteral("file-%1").arg(index);
+        file.category = categories.at(index);
+        file.sizeBytes = index + 1;
+        files.push_back(file);
+    }
+
+    FileTableModel model;
+    model.setFiles(std::move(files));
+
+    QStringList actualTypes;
+    for (int row = 0; row < model.rowCount(); ++row) {
+        actualTypes.push_back(
+            model.data(model.index(row, FileTableModel::Type)).toString());
+        QCOMPARE(
+            model.data(model.index(row, FileTableModel::Size),
+                       FileTableModel::SortRole).toLongLong(),
+            qint64{row + 1});
+    }
+    QCOMPARE(actualTypes, expectedTypes);
+}
+
 void FileOrganizePageTest::scansAndDisplaysResults()
 {
     QTemporaryDir directory;
@@ -2120,8 +2290,8 @@ void FileOrganizePageTest::scansAndDisplaysResults()
     QTRY_VERIFY(tableView->model()->rowCount() == 2);
     QTRY_VERIFY(statusLabel->text().contains(QStringLiteral("扫描完成")));
     QCOMPARE(fileCountLabel->text(), QStringLiteral("文件：2"));
-    QVERIFY(categoryStatsLabel->text().contains(QStringLiteral("Documents")));
-    QVERIFY(categoryStatsLabel->text().contains(QStringLiteral("Images")));
+    QVERIFY(categoryStatsLabel->text().contains(QStringLiteral("文档")));
+    QVERIFY(categoryStatsLabel->text().contains(QStringLiteral("图片")));
 }
 
 void FileOrganizePageTest::categorySummaryShowsAllCategories()
@@ -2156,14 +2326,188 @@ void FileOrganizePageTest::categorySummaryShowsAllCategories()
     directoryEdit->setText(root);
     QVERIFY(QMetaObject::invokeMethod(&page, "startScan"));
     QTRY_VERIFY(tableView->model()->rowCount() == extensions.size());
-    QTRY_VERIFY(categoryStatsLabel->text().contains(QStringLiteral("Documents")));
-    QTRY_VERIFY(categoryStatsLabel->text().contains(QStringLiteral("Images")));
-    QTRY_VERIFY(categoryStatsLabel->text().contains(QStringLiteral("Videos")));
-    QTRY_VERIFY(categoryStatsLabel->text().contains(QStringLiteral("Audio")));
-    QTRY_VERIFY(categoryStatsLabel->text().contains(QStringLiteral("Archives")));
-    QTRY_VERIFY(categoryStatsLabel->text().contains(QStringLiteral("Programming")));
-    QTRY_VERIFY(categoryStatsLabel->text().contains(QStringLiteral("Others")));
+    QTRY_VERIFY(categoryStatsLabel->text().contains(QStringLiteral("文档")));
+    QTRY_VERIFY(categoryStatsLabel->text().contains(QStringLiteral("图片")));
+    QTRY_VERIFY(categoryStatsLabel->text().contains(QStringLiteral("视频")));
+    QTRY_VERIFY(categoryStatsLabel->text().contains(QStringLiteral("压缩包")));
+    QTRY_VERIFY(categoryStatsLabel->text().contains(QStringLiteral("其他")));
 }
+void FileOrganizePageTest::filtersFileNamesCaseInsensitively()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString root = directory.path();
+
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("hello.cpp")), QByteArrayLiteral("cpp")));
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("hello.txt")), QByteArrayLiteral("txt")));
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("test.pdf")), QByteArrayLiteral("pdf")));
+
+    FileOrganizePage page(testApplication());
+    auto *directoryEdit = page.findChild<QLineEdit *>(QStringLiteral("directoryEdit"));
+    auto *searchEdit = page.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
+    auto *tableView = page.findChild<QTableView *>(QStringLiteral("fileTableView"));
+    QVERIFY(directoryEdit != nullptr);
+    QVERIFY(searchEdit != nullptr);
+    QVERIFY(tableView != nullptr);
+
+    directoryEdit->setText(root);
+    QVERIFY(QMetaObject::invokeMethod(&page, "startScan"));
+    QTRY_COMPARE(tableView->model()->rowCount(), 3);
+
+    searchEdit->setText(QStringLiteral("HELLO"));
+    QCOMPARE(tableView->model()->rowCount(), 2);
+    QCOMPARE(tableView->model()->data(tableView->model()->index(0, FileTableModel::FileName)).toString(),
+             QStringLiteral("hello.cpp"));
+    QCOMPARE(tableView->model()->data(tableView->model()->index(1, FileTableModel::FileName)).toString(),
+             QStringLiteral("hello.txt"));
+
+    searchEdit->clear();
+    QCOMPARE(tableView->model()->rowCount(), 3);
+}
+
+void FileOrganizePageTest::sortsByFileNameTypeAndNumericSize()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString root = directory.path();
+
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("B.txt")), QByteArrayLiteral("x")));
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("a.jpg")), QByteArrayLiteral("x")));
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("C.zip")), QByteArrayLiteral("x")));
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("d.mp4")), QByteArrayLiteral("x")));
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("e.xyz")), QByteArrayLiteral("x")));
+
+    const QList<QPair<QString, qint64>> sizedFiles{
+        {QStringLiteral("size-900.bin"), 900LL * 1024},
+        {QStringLiteral("size-1.bin"), 1024LL * 1024},
+        {QStringLiteral("size-10.bin"), 10LL * 1024 * 1024},
+        {QStringLiteral("size-100.bin"), 100LL * 1024 * 1024},
+    };
+    for (const auto &entry : sizedFiles) {
+        QFile file(QDir(root).filePath(entry.first));
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QVERIFY(file.resize(entry.second));
+        file.close();
+    }
+
+    FileOrganizePage page(testApplication());
+    auto *directoryEdit = page.findChild<QLineEdit *>(QStringLiteral("directoryEdit"));
+    auto *tableView = page.findChild<QTableView *>(QStringLiteral("fileTableView"));
+    QVERIFY(directoryEdit != nullptr);
+    QVERIFY(tableView != nullptr);
+
+    directoryEdit->setText(root);
+    QVERIFY(QMetaObject::invokeMethod(&page, "startScan"));
+    QTRY_COMPARE(tableView->model()->rowCount(), 9);
+
+    auto valuesForColumn = [tableView](const int column) {
+        QStringList values;
+        for (int row = 0; row < tableView->model()->rowCount(); ++row) {
+            values.push_back(tableView->model()->data(tableView->model()->index(row, column)).toString());
+        }
+        return values;
+    };
+
+    tableView->sortByColumn(FileTableModel::FileName, Qt::AscendingOrder);
+    QStringList names = valuesForColumn(FileTableModel::FileName);
+    QStringList expectedNames = names;
+    std::sort(expectedNames.begin(), expectedNames.end(),
+              [](const QString &left, const QString &right) {
+                  return left.toCaseFolded() < right.toCaseFolded();
+              });
+    QCOMPARE(names, expectedNames);
+
+    tableView->sortByColumn(FileTableModel::FileName, Qt::DescendingOrder);
+    names = valuesForColumn(FileTableModel::FileName);
+    std::reverse(expectedNames.begin(), expectedNames.end());
+    QCOMPARE(names, expectedNames);
+
+    tableView->sortByColumn(FileTableModel::Type, Qt::AscendingOrder);
+    QStringList types = valuesForColumn(FileTableModel::Type);
+    QStringList expectedTypes = types;
+    std::sort(expectedTypes.begin(), expectedTypes.end());
+    QCOMPARE(types, expectedTypes);
+
+    tableView->sortByColumn(FileTableModel::Type, Qt::DescendingOrder);
+    types = valuesForColumn(FileTableModel::Type);
+    std::reverse(expectedTypes.begin(), expectedTypes.end());
+    QCOMPARE(types, expectedTypes);
+
+    tableView->sortByColumn(FileTableModel::Size, Qt::AscendingOrder);
+    names = valuesForColumn(FileTableModel::FileName);
+    QStringList sizedNames;
+    for (const QString &name : names) {
+        if (name.startsWith(QStringLiteral("size-"))) {
+            sizedNames.push_back(name);
+        }
+    }
+    QStringList expectedSizedNames{
+        QStringLiteral("size-900.bin"),
+        QStringLiteral("size-1.bin"),
+        QStringLiteral("size-10.bin"),
+        QStringLiteral("size-100.bin"),
+    };
+    QCOMPARE(sizedNames, expectedSizedNames);
+
+    tableView->sortByColumn(FileTableModel::Size, Qt::DescendingOrder);
+    names = valuesForColumn(FileTableModel::FileName);
+    sizedNames.clear();
+    for (const QString &name : names) {
+        if (name.startsWith(QStringLiteral("size-"))) {
+            sizedNames.push_back(name);
+        }
+    }
+    std::reverse(expectedSizedNames.begin(), expectedSizedNames.end());
+    QCOMPARE(sizedNames, expectedSizedNames);
+}
+
+void FileOrganizePageTest::selectsMultipleRowsForOperations()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString root = directory.path();
+
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("first.txt")), QByteArrayLiteral("first")));
+    QVERIFY(writeFile(QDir(root).filePath(QStringLiteral("second.pdf")), QByteArrayLiteral("second")));
+
+    FileOrganizePage page(testApplication());
+    auto *directoryEdit = page.findChild<QLineEdit *>(QStringLiteral("directoryEdit"));
+    auto *tableView = page.findChild<QTableView *>(QStringLiteral("fileTableView"));
+    auto *copyButton = page.findChild<QPushButton *>(QStringLiteral("copyFilesButton"));
+    auto *moveButton = page.findChild<QPushButton *>(QStringLiteral("moveFilesButton"));
+    auto *deleteButton = page.findChild<QPushButton *>(QStringLiteral("deleteFilesButton"));
+    QVERIFY(directoryEdit != nullptr);
+    QVERIFY(tableView != nullptr);
+    QVERIFY(copyButton != nullptr);
+    QVERIFY(moveButton != nullptr);
+    QVERIFY(deleteButton != nullptr);
+    QVERIFY(!copyButton->isEnabled());
+    QVERIFY(!moveButton->isEnabled());
+    QVERIFY(!deleteButton->isEnabled());
+
+    directoryEdit->setText(root);
+    QVERIFY(QMetaObject::invokeMethod(&page, "startScan"));
+    QTRY_COMPARE(tableView->model()->rowCount(), 2);
+
+    QItemSelection selection;
+    selection.select(
+        tableView->model()->index(0, FileTableModel::FileName),
+        tableView->model()->index(1, FileTableModel::FileName));
+    tableView->selectionModel()->select(
+        selection,
+        QItemSelectionModel::Rows | QItemSelectionModel::Select);
+
+    QCOMPARE(tableView->selectionModel()->selectedRows(FileTableModel::FileName).size(), 2);
+    QVERIFY(copyButton->isEnabled());
+    QVERIFY(moveButton->isEnabled());
+    QVERIFY(deleteButton->isEnabled());
+
+    tableView->selectionModel()->clear();
+    QVERIFY(!copyButton->isEnabled());
+    QVERIFY(!moveButton->isEnabled());
+    QVERIFY(!deleteButton->isEnabled());
+}
+
 void FileOrganizePageTest::invalidatesPlanWhenTargetRootChanges()
 {
     QTemporaryDir directory;
@@ -3355,6 +3699,8 @@ int main(int argc, char *argv[])
         "FileTableModelTest", argc, argv);
     status |= runTestClass<FilePilot::Test::FileOrganizePageTest>(
         "FileOrganizePageTest", argc, argv);
+    status |= runTestClass<FilePilot::Test::BasicFileOperationsTest>(
+        "BasicFileOperationsTest", argc, argv);
     status |= runTestClass<FilePilot::Test::SettingsServiceTest>(
         "SettingsServiceTest", argc, argv);
     status |= runTestClass<FilePilot::Test::LogManagerTest>(

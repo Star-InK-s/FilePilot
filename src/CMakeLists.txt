@@ -6,6 +6,8 @@ add_library(filepilot_core STATIC
     core/database/ExecutionHistoryRepository.cpp
     core/database/ExecutionHistoryRepository.h
     core/database/HistoryTypes.h
+    core/filesystem/BasicFileOperations.cpp
+    core/filesystem/BasicFileOperations.h
     core/filesystem/FileIdentity.cpp
     core/filesystem/FileIdentity.h
     core/filesystem/FileHasher.cpp

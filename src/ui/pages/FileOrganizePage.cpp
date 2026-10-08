@@ -1,6 +1,7 @@
 #include "ui/pages/FileOrganizePage.h"
 
 #include "app/Application.h"
+#include "core/filesystem/BasicFileOperations.h"
 #include "core/organize/OrganizePathValidator.h"
 #include "core/execution/ExecutionTypes.h"
 #include "core/organize/OrganizePlanner.h"
@@ -8,15 +9,20 @@
 #include "ui/models/ExecutionResultModel.h"
 #include "ui/models/OrganizePreviewModel.h"
 
+#include <QDir>
 #include <QFileDialog>
 #include <QFrame>
 #include <QFileInfo>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QItemSelectionModel>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMessageBox>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QSet>
+#include <QSortFilterProxyModel>
 #include <QStyle>
 #include <QTableView>
 #include <QVBoxLayout>
@@ -55,20 +61,31 @@ void FileOrganizePage::buildUi()
     setObjectName(QStringLiteral("pageOrganize"));
 
     auto *rootLayout = new QVBoxLayout(this);
-    rootLayout->setContentsMargins(28, 24, 28, 22);
-    rootLayout->setSpacing(16);
+    rootLayout->setContentsMargins(32, 28, 32, 24);
+    rootLayout->setSpacing(14);
 
-    auto *titleLabel = new QLabel(QStringLiteral("文件整理"), this);
+    auto *titleBlock = new QVBoxLayout();
+    titleBlock->setSpacing(2);
+
+    auto *titleLabel = new QLabel(QStringLiteral("文件管理"), this);
+    titleLabel->setObjectName(QStringLiteral("pageTitleLabel"));
     QFont titleFont = titleLabel->font();
     titleFont.setPointSize(16);
     titleFont.setBold(true);
     titleLabel->setFont(titleFont);
-    rootLayout->addWidget(titleLabel);
+    titleBlock->addWidget(titleLabel);
+
+    auto *subtitleLabel = new QLabel(
+        QStringLiteral("扫描、查看并整理本地文件"), this);
+    subtitleLabel->setObjectName(QStringLiteral("pageSubtitleLabel"));
+    titleBlock->addWidget(subtitleLabel);
+    rootLayout->addLayout(titleBlock);
 
     auto *directoryRow = new QHBoxLayout();
     directoryRow->setSpacing(10);
 
     auto *directoryLabel = new QLabel(QStringLiteral("扫描目录"), this);
+    directoryLabel->setMinimumWidth(58);
     directoryRow->addWidget(directoryLabel);
 
     directoryEdit_ = new QLineEdit(this);
@@ -82,6 +99,7 @@ void FileOrganizePage::buildUi()
         QStringLiteral("浏览"),
         this);
     chooseDirectoryButton_->setObjectName(QStringLiteral("chooseDirectoryButton"));
+    chooseDirectoryButton_->setMinimumWidth(82);
     directoryRow->addWidget(chooseDirectoryButton_);
 
     scanButton_ = new QPushButton(
@@ -89,6 +107,7 @@ void FileOrganizePage::buildUi()
         QStringLiteral("开始扫描"),
         this);
     scanButton_->setObjectName(QStringLiteral("scanButton"));
+    scanButton_->setMinimumWidth(96);
     directoryRow->addWidget(scanButton_);
     rootLayout->addLayout(directoryRow);
 
@@ -110,32 +129,74 @@ void FileOrganizePage::buildUi()
     extensionStatsLabel_ = new QLabel(QStringLiteral("类型统计：暂无"), this);
     extensionStatsLabel_->setObjectName(QStringLiteral("extensionStatsLabel"));
     extensionStatsLabel_->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    summaryRow->addWidget(extensionStatsLabel_);
+    extensionStatsLabel_->hide();
 
     categoryStatsLabel_ = new QLabel(QStringLiteral("分类统计：暂无"), this);
     categoryStatsLabel_->setObjectName(QStringLiteral("categoryStatsLabel"));
     categoryStatsLabel_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    categoryStatsLabel_->setMinimumWidth(220);
     summaryRow->addWidget(categoryStatsLabel_, 1);
     rootLayout->addLayout(summaryRow);
 
-    scanStatusLabel_ = new QLabel(QStringLiteral("请选择目录后开始扫描"), this);
+    scanStatusLabel_ = new QLabel(
+        QStringLiteral("请选择一个文件夹开始扫描"), this);
     scanStatusLabel_->setObjectName(QStringLiteral("scanStatusLabel"));
     scanStatusLabel_->setWordWrap(true);
     rootLayout->addWidget(scanStatusLabel_);
 
+    auto *listToolbarRow = new QHBoxLayout();
+    listToolbarRow->setSpacing(10);
+    listToolbarRow->addWidget(new QLabel(QStringLiteral("搜索文件名"), this));
+    searchEdit_ = new QLineEdit(this);
+    searchEdit_->setObjectName(QStringLiteral("searchEdit"));
+    searchEdit_->setPlaceholderText(QStringLiteral("按文件名搜索"));
+    searchEdit_->setClearButtonEnabled(true);
+    searchEdit_->setMaximumWidth(360);
+    listToolbarRow->addWidget(searchEdit_);
+    listToolbarRow->addStretch(1);
+
+    copyFilesButton_ = new QPushButton(QStringLiteral("复制"), this);
+    copyFilesButton_->setObjectName(QStringLiteral("copyFilesButton"));
+    copyFilesButton_->setEnabled(false);
+    copyFilesButton_->setMinimumWidth(76);
+    listToolbarRow->addWidget(copyFilesButton_);
+    moveFilesButton_ = new QPushButton(QStringLiteral("移动"), this);
+    moveFilesButton_->setObjectName(QStringLiteral("moveFilesButton"));
+    moveFilesButton_->setEnabled(false);
+    moveFilesButton_->setMinimumWidth(76);
+    listToolbarRow->addWidget(moveFilesButton_);
+    deleteFilesButton_ = new QPushButton(QStringLiteral("删除"), this);
+    deleteFilesButton_->setObjectName(QStringLiteral("deleteFilesButton"));
+    deleteFilesButton_->setEnabled(false);
+    deleteFilesButton_->setMinimumWidth(76);
+    listToolbarRow->addWidget(deleteFilesButton_);
+    rootLayout->addLayout(listToolbarRow);
+
     fileTableView_ = new QTableView(this);
     fileTableView_->setObjectName(QStringLiteral("fileTableView"));
     fileModel_ = new FileTableModel(fileTableView_);
-    fileTableView_->setModel(fileModel_);
+    // The proxy keeps filtering and sorting out of the source model. The view
+    // sees a searchable, sortable list while FileTableModel stores the files.
+    fileProxyModel_ = new QSortFilterProxyModel(fileTableView_);
+    fileProxyModel_->setSourceModel(fileModel_);
+    fileProxyModel_->setFilterKeyColumn(FileTableModel::FileName);
+    fileProxyModel_->setFilterCaseSensitivity(Qt::CaseInsensitive);
+    fileProxyModel_->setSortRole(FileTableModel::SortRole);
+    fileTableView_->setModel(fileProxyModel_);
     fileTableView_->setSelectionBehavior(QAbstractItemView::SelectRows);
     fileTableView_->setSelectionMode(QAbstractItemView::ExtendedSelection);
     fileTableView_->setAlternatingRowColors(true);
-    fileTableView_->setSortingEnabled(false);
+    fileTableView_->setSortingEnabled(true);
+    fileTableView_->sortByColumn(FileTableModel::FileName, Qt::AscendingOrder);
+    fileTableView_->setWordWrap(false);
+    fileTableView_->setTextElideMode(Qt::ElideMiddle);
     fileTableView_->verticalHeader()->setVisible(false);
+    fileTableView_->verticalHeader()->setDefaultSectionSize(34);
+    fileTableView_->horizontalHeader()->setMinimumSectionSize(80);
     fileTableView_->horizontalHeader()->setStretchLastSection(true);
-    fileTableView_->setColumnWidth(FileTableModel::FileName, 220);
-    fileTableView_->setColumnWidth(FileTableModel::Type, 120);
-    fileTableView_->setColumnWidth(FileTableModel::Size, 110);
+    fileTableView_->setColumnWidth(FileTableModel::FileName, 240);
+    fileTableView_->setColumnWidth(FileTableModel::Type, 110);
+    fileTableView_->setColumnWidth(FileTableModel::Size, 100);
     fileTableView_->setColumnWidth(FileTableModel::ModifiedTime, 150);
     rootLayout->addWidget(fileTableView_, 2);
 
@@ -294,6 +355,10 @@ void FileOrganizePage::buildUi()
     previewLayout->addWidget(executionResultTableView_, 1);
     rootLayout->addWidget(previewPanel, 2);
 
+    // Keep the advanced organize flow compiled and tested, but leave it out of
+    // the simplified v1 scan-and-list workflow.
+    previewPanel->hide();
+
     connect(chooseDirectoryButton_, &QPushButton::clicked,
             this, &FileOrganizePage::chooseDirectory);
     connect(scanButton_, &QPushButton::clicked,
@@ -329,6 +394,24 @@ void FileOrganizePage::buildUi()
             this, &FileOrganizePage::generatePreview);
     connect(directoryEdit_, &QLineEdit::returnPressed,
             this, &FileOrganizePage::startScan);
+    connect(searchEdit_, &QLineEdit::textChanged,
+            fileProxyModel_, &QSortFilterProxyModel::setFilterFixedString);
+    connect(copyFilesButton_, &QPushButton::clicked,
+            this, &FileOrganizePage::copySelectedFiles);
+    connect(moveFilesButton_, &QPushButton::clicked,
+            this, &FileOrganizePage::moveSelectedFiles);
+    connect(deleteFilesButton_, &QPushButton::clicked,
+            this, &FileOrganizePage::deleteSelectedFiles);
+    connect(fileTableView_->selectionModel(),
+            &QItemSelectionModel::selectionChanged,
+            this,
+            [this](const QItemSelection &, const QItemSelection &) {
+                const bool hasSelection =
+                    fileTableView_->selectionModel()->hasSelection();
+                copyFilesButton_->setEnabled(hasSelection);
+                moveFilesButton_->setEnabled(hasSelection);
+                deleteFilesButton_->setEnabled(hasSelection);
+            });
 }
 
 void FileOrganizePage::chooseTargetRoot()
@@ -529,7 +612,7 @@ void FileOrganizePage::startScan()
 {
     const QString rootPath = directoryEdit_->text().trimmed();
     if (rootPath.isEmpty()) {
-        scanStatusLabel_->setText(QStringLiteral("请先选择扫描目录"));
+        scanStatusLabel_->setText(QStringLiteral("请先选择一个文件夹"));
         return;
     }
 
@@ -551,7 +634,7 @@ void FileOrganizePage::startScan()
     }
     fileModel_->clear();
     updateSummary(0, 0, 0, {}, {});
-    scanStatusLabel_->setText(QStringLiteral("正在准备扫描"));
+    scanStatusLabel_->setText(QStringLiteral("正在准备扫描..."));
     scanButton_->setEnabled(false);
     chooseDirectoryButton_->setEnabled(false);
     directoryEdit_->setEnabled(false);
@@ -575,6 +658,167 @@ void FileOrganizePage::cancelScan()
     scanTask_.cancel();
 }
 
+QStringList FileOrganizePage::selectedFilePaths() const
+{
+    QStringList paths;
+    if (fileTableView_ == nullptr || fileTableView_->selectionModel() == nullptr) {
+        return paths;
+    }
+
+    const QModelIndexList selectedRows =
+        fileTableView_->selectionModel()->selectedRows(FileTableModel::FileName);
+    for (const QModelIndex &proxyIndex : selectedRows) {
+        const QModelIndex sourceIndex = fileProxyModel_->mapToSource(proxyIndex);
+        if (!sourceIndex.isValid() || sourceIndex.row() < 0
+            || sourceIndex.row() >= fileModel_->rowCount()) {
+            continue;
+        }
+        paths.push_back(
+            fileModel_->files().at(static_cast<std::size_t>(sourceIndex.row()))
+                .absolutePath);
+    }
+    return paths;
+}
+
+void FileOrganizePage::copySelectedFiles()
+{
+    runTargetOperation(false);
+}
+
+void FileOrganizePage::moveSelectedFiles()
+{
+    runTargetOperation(true);
+}
+
+void FileOrganizePage::runTargetOperation(const bool moveFiles)
+{
+    const QStringList sourcePaths = selectedFilePaths();
+    const QString actionName =
+        moveFiles ? QStringLiteral("移动") : QStringLiteral("复制");
+    if (sourcePaths.isEmpty()) {
+        QMessageBox::information(
+            this,
+            QStringLiteral("提示"),
+            QStringLiteral("请先选择要%1的文件。").arg(actionName));
+        return;
+    }
+
+    const QString targetDirectory = QFileDialog::getExistingDirectory(
+        this,
+        QStringLiteral("选择%1目标文件夹").arg(actionName),
+        currentRoot_);
+    if (targetDirectory.isEmpty()) {
+        return;
+    }
+
+    QSet<QString> destinations;
+    QStringList conflicts;
+    for (const QString &sourcePath : sourcePaths) {
+        const QString destination =
+            QDir(targetDirectory).filePath(QFileInfo(sourcePath).fileName());
+        const QString key = QDir::cleanPath(destination).toCaseFolded();
+        if (QFileInfo::exists(destination) || destinations.contains(key)) {
+            conflicts.push_back(destination);
+        }
+        destinations.insert(key);
+    }
+    if (!conflicts.isEmpty()) {
+        QMessageBox::warning(
+            this,
+            QStringLiteral("目标文件已存在"),
+            QStringLiteral("目标文件已存在，已取消当前操作。\n%1")
+                .arg(conflicts.join(QStringLiteral("\\n"))));
+        return;
+    }
+
+    QStringList errors;
+    int succeeded = 0;
+    for (const QString &sourcePath : sourcePaths) {
+        QString errorMessage;
+        const bool success = moveFiles
+            ? FilePilot::BasicFileOperations::move(
+                  sourcePath, targetDirectory, errorMessage)
+            : FilePilot::BasicFileOperations::copy(
+                  sourcePath, targetDirectory, errorMessage);
+        if (success) {
+            ++succeeded;
+        } else {
+            errors.push_back(errorMessage);
+        }
+    }
+
+    if (errors.isEmpty()) {
+        QMessageBox::information(
+            this,
+            QStringLiteral("%1完成").arg(actionName),
+            QStringLiteral("%1完成：%2 个文件。").arg(actionName).arg(succeeded));
+    } else {
+        QMessageBox::warning(
+            this,
+            QStringLiteral("%1部分完成").arg(actionName),
+            QStringLiteral("成功：%1 个，失败：%2 个。\n%3")
+                .arg(succeeded)
+                .arg(errors.size())
+                .arg(errors.join(QStringLiteral("\n"))));
+    }
+
+    if (moveFiles && succeeded > 0) {
+        startScan();
+    }
+}
+
+void FileOrganizePage::deleteSelectedFiles()
+{
+    const QStringList sourcePaths = selectedFilePaths();
+    if (sourcePaths.isEmpty()) {
+        QMessageBox::information(
+            this,
+            QStringLiteral("提示"),
+            QStringLiteral("请先选择要删除的文件。"));
+        return;
+    }
+
+    const QMessageBox::StandardButton answer = QMessageBox::question(
+        this,
+        QStringLiteral("删除文件"),
+        QStringLiteral("确定要删除选中的 %1 个文件吗？").arg(sourcePaths.size()),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No);
+    if (answer != QMessageBox::Yes) {
+        return;
+    }
+
+    QStringList errors;
+    int succeeded = 0;
+    for (const QString &sourcePath : sourcePaths) {
+        QString errorMessage;
+        if (FilePilot::BasicFileOperations::remove(sourcePath, errorMessage)) {
+            ++succeeded;
+        } else {
+            errors.push_back(errorMessage);
+        }
+    }
+
+    if (errors.isEmpty()) {
+        QMessageBox::information(
+            this,
+            QStringLiteral("删除完成"),
+            QStringLiteral("删除完成：%1 个文件。").arg(succeeded));
+    } else {
+        QMessageBox::warning(
+            this,
+            QStringLiteral("删除部分完成"),
+            QStringLiteral("成功：%1 个，失败：%2 个。\n%3")
+                .arg(succeeded)
+                .arg(errors.size())
+                .arg(errors.join(QStringLiteral("\n"))));
+    }
+
+    if (succeeded > 0) {
+        startScan();
+    }
+}
+
 void FileOrganizePage::handleTaskState(const TaskState state)
 {
     updateControls(state);
@@ -582,10 +826,10 @@ void FileOrganizePage::handleTaskState(const TaskState state)
 
     switch (state) {
     case TaskState::Preparing:
-        scanStatusLabel_->setText(QStringLiteral("正在准备扫描"));
+        scanStatusLabel_->setText(QStringLiteral("正在准备扫描..."));
         break;
     case TaskState::Running:
-        scanStatusLabel_->setText(QStringLiteral("正在扫描文件"));
+        scanStatusLabel_->setText(QStringLiteral("正在扫描..."));
         break;
     case TaskState::Cancelling:
         scanStatusLabel_->setText(QStringLiteral("正在取消扫描"));
@@ -611,7 +855,7 @@ void FileOrganizePage::handleProgress(const qint64 scannedFileCount,
 {
     Q_UNUSED(currentFile);
     scanStatusLabel_->setText(
-        QStringLiteral("已扫描 %1 个文件").arg(scannedFileCount));
+        QStringLiteral("正在扫描... 已扫描 %1 个文件").arg(scannedFileCount));
     emit taskProgressChanged(scannedFileCount, currentDirectory, currentFile);
 }
 
@@ -645,7 +889,7 @@ void FileOrganizePage::handleCompleted(const ScanResult result)
 
     QHash<QString, qint64> categoryCounts;
     for (const FileInfo &file : result.files) {
-        ++categoryCounts[file.category];
+        ++categoryCounts[FileTableModel::typeLabel(file)];
     }
 
     updateSummary(
@@ -664,10 +908,16 @@ void FileOrganizePage::handleCompleted(const ScanResult result)
     }
     scanStatusLabel_->setToolTip(errorDetails.join(QStringLiteral("\n")));
 
-    scanStatusLabel_->setText(result.statistics.errorCount > 0
-        ? QStringLiteral("扫描完成，发现 %1 个错误")
-              .arg(result.statistics.errorCount)
-        : QStringLiteral("扫描完成"));
+    if (result.statistics.errorCount > 0) {
+        scanStatusLabel_->setText(
+            QStringLiteral("扫描完成，发现 %1 个错误")
+                .arg(result.statistics.errorCount));
+    } else if (result.files.empty()) {
+        scanStatusLabel_->setText(QStringLiteral("该文件夹中没有找到文件"));
+    } else {
+        scanStatusLabel_->setText(
+            QStringLiteral("扫描完成：%1 个文件").arg(result.statistics.fileCount));
+    }
     emit taskProgressChanged(
         result.statistics.fileCount, result.rootPath, QString());
 }

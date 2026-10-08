@@ -49,6 +49,17 @@ QString fluentStyleSheet(const ThemePalette &colors)
             background: transparent;
             color: %2;
         }
+        QLabel#pageTitleLabel {
+            font-size: 20px;
+            font-weight: 600;
+        }
+        QLabel#pageSubtitleLabel,
+        QLabel#scanStatusLabel {
+            color: %5;
+        }
+        QLabel#pageSubtitleLabel {
+            font-size: 13px;
+        }
         QLabel[errorState="true"],
         QLabel#backupErrorLabel {
             color: %13;
@@ -205,6 +216,9 @@ QString fluentStyleSheet(const ThemePalette &colors)
             selection-background-color: %10;
             selection-color: %21;
         }
+        QLineEdit#searchEdit {
+            max-width: 360px;
+        }
         QLineEdit:focus {
             border: %20 solid %12;
             padding: 4px 7px;
@@ -255,6 +269,26 @@ QString fluentStyleSheet(const ThemePalette &colors)
             padding: 2px 11px;
         }
         QPushButton:disabled {
+            background: %7;
+            color: %11;
+            border-color: %4;
+        }
+        QPushButton#deleteFilesButton {
+            background: transparent;
+            color: %13;
+            border-color: %13;
+        }
+        QPushButton#deleteFilesButton:hover {
+            background: %6;
+            color: %13;
+            border-color: %13;
+        }
+        QPushButton#deleteFilesButton:pressed {
+            background: %7;
+            color: %13;
+            border-color: %13;
+        }
+        QPushButton#deleteFilesButton:disabled {
             background: %7;
             color: %11;
             border-color: %4;

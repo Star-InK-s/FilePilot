@@ -62,8 +62,6 @@ NativeEntryInfo inspectNativeEntry(const QString &path)
 #endif
 
 
-namespace fs = std::filesystem;
-
 QString pathToString(const fs::path &path)
 {
     return QString::fromStdString(path.u8string());
